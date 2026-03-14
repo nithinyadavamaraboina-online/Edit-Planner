@@ -1,4 +1,13 @@
 
+export interface Leave {
+  id: string;
+  workerId: string;
+  date: string; // ISO Date String (YYYY-MM-DD)
+  type: 'paid' | 'casual' | 'unpaid';
+  reason?: string;
+  approvedBy?: string;
+}
+
 export interface Worker {
   id: string;
   name: string;
@@ -7,6 +16,7 @@ export interface Worker {
   editCapacity: number;
   limitations?: string;
   language?: string; // New: Team Language (e.g., 'Telugu', 'Hindi')
+  leaves?: Leave[]; // New: Track leaves for this worker
 }
 
 export interface Workload {
@@ -73,6 +83,10 @@ export interface TaskAssignment {
   assignedRows?: string; // Deprecated: Space separated numbers
   assignedGenRows?: string; // New: Specific rows for generation
   assignedEditRows?: string; // New: Specific rows for editing
+  plannedGenRows?: string; // New: Planned rows for generation
+  plannedEditRows?: string; // New: Planned rows for editing
+  plannedGenerations?: number; // New: Planned count for generation
+  plannedEdits?: number; // New: Planned count for editing
   taskLanguage?: string; // New: Language context for this specific task (e.g. 'Hindi' if assigned from Hindi view)
 }
 

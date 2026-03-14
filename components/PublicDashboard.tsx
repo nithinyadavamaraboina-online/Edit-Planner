@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { collection, query, orderBy, limit, onSnapshot, getFirestore } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, getFirestore, doc } from 'firebase/firestore';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { Batch } from '../types';
 import { LayoutGrid, CheckCircle, Trophy, Moon, Sun } from 'lucide-react';
@@ -150,6 +150,23 @@ const ProjectCard: React.FC<{ batch: Batch }> = ({ batch }) => {
     const statusColor = getStatusColor(status);
     const isCompleted = status === 'completed' || progress >= 100;
 
+    const getEstimatedCompletionText = () => {
+        if (status === 'completed') return 'Completed';
+        if (status === 'due_today') return 'Completing Today';
+        
+        const actualVelocity = daysPassed > 0 ? (completedUnits / daysPassed) : 0;
+        if (actualVelocity > 0) {
+             const daysNeeded = Math.ceil(remainingUnits / actualVelocity);
+             const estimatedDate = new Date();
+             estimatedDate.setDate(estimatedDate.getDate() + daysNeeded);
+             
+             // Format: "Est: Mar 10"
+             return `Est: ${estimatedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+        }
+        
+        return 'Calculating...';
+    };
+
     return (
         <div className={`${isCompleted ? 'bg-emerald-50/50 border-emerald-200 dark:bg-emerald-900/10 dark:border-emerald-800' : 'bg-slate-50 border-slate-200 dark:bg-slate-800/50 dark:border-slate-800'} rounded-xl p-5 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 relative group border shadow-sm flex flex-col h-full justify-between`}>
             <div>
@@ -180,8 +197,15 @@ const ProjectCard: React.FC<{ batch: Batch }> = ({ batch }) => {
                             style={{ width: `${progress}%` }}
                         ></div>
                     </div>
-                    <div className={`w-full py-1.5 rounded-md border text-center text-[10px] font-bold uppercase tracking-wide ${statusColor}`}>
-                        {getStatusLabel(status, predictionData)}
+                    <div className="flex justify-between gap-2">
+                        <div className={`flex-1 py-1.5 rounded-md border text-center text-[10px] font-bold uppercase tracking-wide ${statusColor}`}>
+                            {getStatusLabel(status, predictionData)}
+                        </div>
+                        {!isCompleted && (
+                            <div className="flex-1 py-1.5 rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-center text-[10px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                {getEstimatedCompletionText()}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
@@ -213,24 +237,120 @@ const PublicDashboard: React.FC = () => {
 
     useEffect(() => {
         const db = getDb();
-        const q = query(collection(db, "production_plans"), orderBy("createdAt", "desc"), limit(1));
-        
-        const unsubscribe = onSnapshot(q, async (snapshot) => {
-            if (!snapshot.empty) {
-                const data = snapshot.docs[0].data();
-                const loadedBatches = (data.batches || []) as Batch[];
-                loadedBatches.sort((a, b) => (a.status === 'active' ? -1 : 1));
-                
-                setBatches(loadedBatches);
-                setLastUpdated(data.updatedAt?.toDate() || new Date());
-            }
-            setLoading(false);
-        }, (error) => {
-            console.error("Error connecting to live stream:", error);
-            setLoading(false);
-        });
+        const params = new URLSearchParams(window.location.search);
+        const planId = params.get('id');
 
-        return () => unsubscribe();
+        let unsubscribe: () => void;
+
+        const processPlanData = (data: any) => {
+             const rawBatches = (data.batches || []) as Batch[];
+             
+             // Calculate progress dynamically from schedule to ensure consistency
+             // This mirrors the logic in DailyUpdate.tsx
+             const stats: Record<string, { assignedGen: number, assignedEdit: number }> = {};
+             
+             // Helper to parse dummies
+             const parseDummies = (str?: string) => {
+                const set = new Set<number>();
+                if (!str) return set;
+                str.trim().split(/[\s,]+/).forEach(s => {
+                    const n = parseInt(s);
+                    if (!isNaN(n)) set.add(n);
+                });
+                return set;
+             };
+
+             // Helper to count valid rows
+             const countValidRows = (str: string, dummySet: Set<number>) => {
+                if (!str) return 0;
+                const tokens = str.trim().split(/[\s,]+/).filter(Boolean);
+                let count = 0;
+                tokens.forEach(t => {
+                    const n = parseInt(t);
+                    if (!isNaN(n) && !dummySet.has(n)) {
+                        count++;
+                    }
+                });
+                return count;
+             };
+
+             // Iterate through schedule to sum up assigned work
+             if (data.schedule && Array.isArray(data.schedule)) {
+                 data.schedule.forEach((day: any) => {
+                     if (day.assignments && Array.isArray(day.assignments)) {
+                         day.assignments.forEach((task: any) => {
+                             if (task.batchId && task.batchId !== 'DEFAULT') {
+                                 if (!stats[task.batchId]) stats[task.batchId] = { assignedGen: 0, assignedEdit: 0 };
+                                 
+                                 const batch = rawBatches.find(b => b.id === task.batchId);
+                                 const dummySet = batch ? parseDummies(batch.dummyRows) : new Set<number>();
+
+                                 // Gen
+                                 if (task.assignedGenRows && task.assignedGenRows.trim().length > 0) {
+                                     stats[task.batchId].assignedGen += countValidRows(task.assignedGenRows, dummySet);
+                                 } else {
+                                     stats[task.batchId].assignedGen += (task.generations || 0);
+                                 }
+
+                                 // Edit
+                                 if (task.assignedEditRows && task.assignedEditRows.trim().length > 0) {
+                                     stats[task.batchId].assignedEdit += countValidRows(task.assignedEditRows, dummySet);
+                                 } else {
+                                     stats[task.batchId].assignedEdit += (task.edits || 0);
+                                 }
+                             }
+                         });
+                     }
+                 });
+             }
+
+             // Map calculated stats back to batches
+             const calculatedBatches = rawBatches.map(b => {
+                 const s = stats[b.id] || { assignedGen: 0, assignedEdit: 0 };
+                 const total = b.aiVideos + (b.aiVideos + b.normalVideos);
+                 const done = s.assignedGen + s.assignedEdit;
+                 const p = total > 0 ? Math.round((done / total) * 100) : 0;
+                 
+                 return {
+                     ...b,
+                     completedGen: s.assignedGen,
+                     completedEdit: s.assignedEdit,
+                     progress: Math.min(100, p)
+                 };
+             });
+
+             calculatedBatches.sort((a, b) => (a.status === 'active' ? -1 : 1));
+             setBatches(calculatedBatches);
+             setLastUpdated(data.updatedAt?.toDate() || new Date());
+        };
+
+        if (planId) {
+            // Subscribe to a specific plan
+            const planRef = doc(db, "production_plans", planId);
+            unsubscribe = onSnapshot(planRef, (doc) => {
+                if (doc.exists()) {
+                    processPlanData(doc.data());
+                }
+                setLoading(false);
+            }, (error) => {
+                console.error("Error connecting to plan stream:", error);
+                setLoading(false);
+            });
+        } else {
+            // Fallback to latest UPDATED plan
+            const q = query(collection(db, "production_plans"), orderBy("updatedAt", "desc"), limit(1));
+            unsubscribe = onSnapshot(q, (snapshot) => {
+                if (!snapshot.empty) {
+                    processPlanData(snapshot.docs[0].data());
+                }
+                setLoading(false);
+            }, (error) => {
+                console.error("Error connecting to live stream:", error);
+                setLoading(false);
+            });
+        }
+
+        return () => unsubscribe && unsubscribe();
     }, []);
 
     if (loading) {

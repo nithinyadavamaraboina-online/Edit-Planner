@@ -90,7 +90,7 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
               value={clientName}
               onChange={(e) => setClientName(e.target.value)}
               className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="e.g. Nerchuko"
+              placeholder="Nerchuko"
               autoFocus={!initialData}
             />
           </div>
@@ -102,7 +102,7 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
               value={batchName}
               onChange={(e) => setBatchName(e.target.value)}
               className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="e.g. Batch-04-OCT"
+              placeholder="Batch-04-OCT"
             />
           </div>
           
@@ -158,7 +158,7 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
               value={normalRows}
               onChange={(e) => setNormalRows(e.target.value)}
               className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-300"
-              placeholder="e.g. 1 2 3 (Normal Videos)"
+              placeholder="1 2 3 (Normal Videos)"
             />
             <p className="text-[10px] text-slate-400 mt-1">Specify which rows are normal videos.</p>
           </div>
@@ -170,7 +170,7 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
               value={dummyRows}
               onChange={(e) => setDummyRows(e.target.value)}
               className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-300"
-              placeholder="e.g. 5 12 30 (Rows to skip)"
+              placeholder="5 12 30 (Rows to skip)"
             />
             <p className="text-[10px] text-slate-400 mt-1">These rows won't count as pending work.</p>
           </div>

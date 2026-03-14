@@ -9,7 +9,8 @@ interface AssignWorkProps {
   workers: Worker[]; // Filtered workers
   allWorkers?: Worker[]; // All workers
   batches?: Batch[];
-  onUpdatePlan: (plan: ProductionPlan, saveToCloud?: boolean) => void;
+  onUpdatePlan: (plan: ProductionPlan, saveToCloud?: boolean, dayToSave?: number, assignmentId?: string, isDeletion?: boolean) => void;
+  onToggleLeave?: (workerId: string, day: number) => void;
   currentLanguage: string;
 }
 
@@ -20,6 +21,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
   allWorkers = [],
   batches = [], 
   onUpdatePlan,
+  onToggleLeave,
   currentLanguage
 }) => {
   const getProjectStartDate = () => new Date(workload.startDate);
@@ -95,6 +97,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
 
   // --- Worker Display Logic ---
   const defaultTeam = useMemo(() => {
+    if (!Array.isArray(workers)) return [];
     return workers.filter(w => w.role !== 'Assist');
   }, [workers]);
 
@@ -102,7 +105,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
       const relevantWorkerIds = new Set<string>();
       defaultTeam.forEach(w => relevantWorkerIds.add(w.id));
 
-      currentDayPlan.assignments.forEach(task => {
+      (currentDayPlan.assignments || []).forEach(task => {
           if (task.taskLanguage) {
               if (task.taskLanguage === currentLanguage) relevantWorkerIds.add(task.workerId);
           } else {
@@ -125,7 +128,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
   const teamStats = useMemo(() => {
       let gen = 0;
       let edit = 0;
-      currentDayPlan.assignments.forEach(t => {
+      (currentDayPlan.assignments || []).forEach(t => {
           const isRelevant = t.taskLanguage === currentLanguage || 
                              (!t.taskLanguage && workers.some(w => w.id === t.workerId));
           if (isRelevant) {
@@ -136,38 +139,40 @@ const AssignWork: React.FC<AssignWorkProps> = ({
       return { gen, edit };
   }, [currentDayPlan.assignments, workers, currentLanguage]);
 
-  // --- PENDING STATS CALCULATION ---
-  const pendingStats = useMemo(() => {
-    const aiGenRows: Record<string, number[]> = {};
-    const aiEditRows: Record<string, number[]> = {};
-    const normalEditRows: Record<string, number[]> = {};
-
-    // 1. Collect all assigned work per batch globally
-    const assignedWorkByBatch: Record<string, { gen: Set<number>, edit: Set<number> }> = {};
-    
-    plan.schedule.forEach(day => {
-      day.assignments.forEach(task => {
+  // 1. Collect all assigned work per batch globally
+  const assignedWorkByBatch = useMemo(() => {
+    const map: Record<string, { gen: Set<number>, edit: Set<number> }> = {};
+    (plan.schedule || []).forEach(day => {
+      (day.assignments || []).forEach(task => {
         if (task.batchId && task.batchId !== 'DEFAULT') {
-          if (!assignedWorkByBatch[task.batchId]) {
-            assignedWorkByBatch[task.batchId] = { gen: new Set(), edit: new Set() };
+          if (!map[task.batchId]) {
+            map[task.batchId] = { gen: new Set(), edit: new Set() };
           }
           
           if (task.assignedGenRows) {
             task.assignedGenRows.trim().split(/[\s,]+/).forEach(s => {
                const n = parseInt(s);
-               if (!isNaN(n)) assignedWorkByBatch[task.batchId].gen.add(n);
+               if (!isNaN(n)) map[task.batchId].gen.add(n);
             });
           }
           
           if (task.assignedEditRows) {
             task.assignedEditRows.trim().split(/[\s,]+/).forEach(s => {
                const n = parseInt(s);
-               if (!isNaN(n)) assignedWorkByBatch[task.batchId].edit.add(n);
+               if (!isNaN(n)) map[task.batchId].edit.add(n);
             });
           }
         }
       });
     });
+    return map;
+  }, [plan.schedule]);
+
+  // --- PENDING STATS CALCULATION ---
+  const pendingStats = useMemo(() => {
+    const aiGenRows: Record<string, number[]> = {};
+    const aiEditRows: Record<string, number[]> = {};
+    const normalEditRows: Record<string, number[]> = {};
 
     // 2. Iterate Active Batches for current language (Excluding completed batches)
     const relevantBatches = batches.filter(b => 
@@ -216,7 +221,88 @@ const AssignWork: React.FC<AssignWorkProps> = ({
     });
 
     return { aiGenRows, aiEditRows, normalEditRows };
-  }, [plan, batches, currentLanguage]);
+  }, [batches, currentLanguage, assignedWorkByBatch]);
+
+  const validateRowInput = (value: string, batchId?: string, type?: 'gen' | 'edit') => {
+      if (!batchId || batchId === 'DEFAULT' || batchId === 'LEAVE') return value;
+      
+      const batch = batches.find(b => b.id === batchId);
+      if (!batch) return value;
+
+      const totalRows = batch.aiVideos + batch.normalVideos;
+      const maxRow = totalRows + 1;
+      const minRow = 2;
+
+      // Parse normals
+      const normalSet = new Set<number>();
+      if (batch.normalRows) {
+          batch.normalRows.trim().split(/[\s,]+/).forEach(s => {
+              const n = parseInt(s);
+              if (!isNaN(n)) normalSet.add(n);
+          });
+      }
+
+      // Parse dummies
+      const dummySet = new Set<number>();
+      if (batch.dummyRows) {
+          batch.dummyRows.trim().split(/[\s,]+/).forEach(s => {
+              const n = parseInt(s);
+              if (!isNaN(n)) dummySet.add(n);
+          });
+      }
+
+      const validNumbers: number[] = [];
+      const parts = value.split(/[\s,]+/);
+      
+      parts.forEach(part => {
+          // Check for range format "start-end"
+          if (part.includes('-')) {
+              const [startStr, endStr] = part.split('-');
+              const start = parseInt(startStr);
+              const end = parseInt(endStr);
+              
+              if (!isNaN(start) && !isNaN(end) && start <= end) {
+                  for (let i = start; i <= end; i++) {
+                      if (i >= minRow && i <= maxRow) {
+                          validNumbers.push(i);
+                      }
+                  }
+              }
+          } else {
+              const n = parseInt(part);
+              if (!isNaN(n)) {
+                  if (n >= minRow && n <= maxRow) {
+                      validNumbers.push(n);
+                  }
+              }
+          }
+      });
+
+      // Filter based on logic
+      const filtered = validNumbers.filter(n => {
+          if (dummySet.has(n)) return false; // Filter out dummies
+          
+          const isNormal = normalSet.has(n);
+          
+          if (type === 'edit') {
+              // If AI video (not normal), check if Gen is assigned/done
+              if (!isNormal) {
+                  const assigned = assignedWorkByBatch[batchId];
+                  // Must be in assigned.gen to be valid for edit assignment
+                  // "take the rows ... which are already marked as done"
+                  if (assigned && assigned.gen.has(n)) {
+                      return true;
+                  }
+                  return false; 
+              }
+          }
+          return true;
+      });
+
+      // Remove duplicates and sort
+      const unique = Array.from(new Set(filtered)).sort((a, b) => a - b);
+      return unique.join(' ');
+  };
 
   const renderPendingSection = (data: Record<string, number[]>, title: string, icon: React.ReactNode, badgeColor: string) => {
       const batchesList = Object.keys(data).filter(k => data[k].length > 0);
@@ -261,7 +347,26 @@ const AssignWork: React.FC<AssignWorkProps> = ({
      return allWorkers.filter(w => !displayedIds.has(w.id));
   }, [allWorkers, displayedWorkers]);
 
-  const activeBatches = batches.filter(b => b.status === 'active' && (b.progress || 0) < 100);
+  const activeBatches = (batches || []).filter(b => b.status === 'active');
+
+  const getDefaultBatchId = () => {
+    const langBatches = (batches || []).filter(b => 
+      (b.language || 'Telugu') === currentLanguage && 
+      b.status === 'active'
+    );
+    
+    if (langBatches.length === 0) return 'DEFAULT';
+
+    // Sort: prioritize those not finished (< 100%), then by newest
+    const sorted = [...langBatches].sort((a, b) => {
+      const aFinished = (a.progress || 0) >= 100;
+      const bFinished = (b.progress || 0) >= 100;
+      if (aFinished !== bFinished) return aFinished ? 1 : -1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
+    return sorted[0].id;
+  };
 
   const goToPreviousWeek = () => {
     const newDate = new Date(viewDate);
@@ -275,7 +380,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
   };
   const currentCalendarDate = getDateFromDayIndex(selectedDay);
 
-  const handleUpdate = (task: TaskAssignment, field: 'batchId' | 'assignedGenRows' | 'assignedEditRows', value: any) => {
+  const handleUpdate = (task: TaskAssignment, field: 'batchId' | 'assignedGenRows' | 'assignedEditRows' | 'plannedGenRows' | 'plannedEditRows', value: any) => {
       const newPlan = { ...plan, schedule: [...plan.schedule] };
       let dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
       
@@ -293,7 +398,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
           dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
       }
       
-      const newDay = { ...newPlan.schedule[dayIdx], assignments: [...newPlan.schedule[dayIdx].assignments] };
+      const newDay = { ...newPlan.schedule[dayIdx], assignments: [...(newPlan.schedule[dayIdx].assignments || [])] };
       
       let taskIdx = -1;
       if (task.id) {
@@ -305,13 +410,25 @@ const AssignWork: React.FC<AssignWorkProps> = ({
       if (taskIdx !== -1) {
           const updatedTask = { ...newDay.assignments[taskIdx] };
           
-          if (field === 'assignedGenRows' || field === 'assignedEditRows') {
+          if (field === 'batchId') {
+              if (value === 'LEAVE') {
+                  updatedTask.isOnLeave = true;
+                  updatedTask.plannedGenerations = 0;
+                  updatedTask.plannedEdits = 0;
+                  updatedTask.batchId = undefined;
+                  if (onToggleLeave) onToggleLeave(task.workerId, selectedDay, true, true);
+              } else {
+                  if (updatedTask.isOnLeave && onToggleLeave) onToggleLeave(task.workerId, selectedDay, false, true);
+                  updatedTask.isOnLeave = false;
+                  updatedTask.batchId = value;
+              }
+          } else if (field === 'plannedGenRows' || field === 'plannedEditRows') {
              updatedTask[field] = value;
              const rowString = value as string;
              const count = rowString.trim() === '' ? 0 : rowString.trim().split(/[\s,]+/).filter(Boolean).length;
              
-             if (field === 'assignedGenRows') updatedTask.generations = count;
-             if (field === 'assignedEditRows') updatedTask.edits = count;
+             if (field === 'plannedGenRows') updatedTask.plannedGenerations = count;
+             if (field === 'plannedEditRows') updatedTask.plannedEdits = count;
           } else {
               updatedTask[field] = value;
           }
@@ -322,15 +439,15 @@ const AssignWork: React.FC<AssignWorkProps> = ({
               id: task.id || Math.random().toString(36).substr(2, 9),
               [field]: value
           };
-          if (field === 'assignedGenRows') {
+          if (field === 'plannedGenRows') {
              const rowString = value as string;
              const count = rowString.trim() === '' ? 0 : rowString.trim().split(/[\s,]+/).filter(Boolean).length;
-             newTask.generations = count;
+             newTask.plannedGenerations = count;
           }
-          if (field === 'assignedEditRows') {
+          if (field === 'plannedEditRows') {
             const rowString = value as string;
             const count = rowString.trim() === '' ? 0 : rowString.trim().split(/[\s,]+/).filter(Boolean).length;
-            newTask.edits = count;
+            newTask.plannedEdits = count;
           }
           newDay.assignments.push(newTask);
       }
@@ -345,12 +462,12 @@ const AssignWork: React.FC<AssignWorkProps> = ({
           totalEdits: newPlan.schedule.reduce((sum, d) => sum + d.dailyTotalEdit, 0)
       };
 
-      onUpdatePlan(newPlan, false);
+      onUpdatePlan(newPlan, true, selectedDay, task.id || task.workerId);
   };
 
   const copyGenToEdit = (task: TaskAssignment) => {
-      if (!task.assignedGenRows) return;
-      handleUpdate(task, 'assignedEditRows', task.assignedGenRows);
+      if (!task.plannedGenRows) return;
+      handleUpdate(task, 'plannedEditRows', task.plannedGenRows);
   };
 
   const addSplitAssignment = (worker: Worker) => {
@@ -371,7 +488,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
           dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
       }
 
-      const newDay = { ...newPlan.schedule[dayIdx], assignments: [...newPlan.schedule[dayIdx].assignments] };
+      const newDay = { ...newPlan.schedule[dayIdx], assignments: [...(newPlan.schedule[dayIdx].assignments || [])] };
       const newAssignment: TaskAssignment = {
           id: Math.random().toString(36).substr(2, 9),
           workerId: worker.id,
@@ -379,8 +496,12 @@ const AssignWork: React.FC<AssignWorkProps> = ({
           role: worker.role,
           generations: 0,
           edits: 0,
+          plannedGenerations: 0,
+          plannedEdits: 0,
           isOnLeave: false,
-          batchId: 'DEFAULT',
+          batchId: getDefaultBatchId(),
+          plannedGenRows: '',
+          plannedEditRows: '',
           assignedGenRows: '',
           assignedEditRows: '',
           taskLanguage: currentLanguage 
@@ -388,7 +509,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
       
       newDay.assignments.push(newAssignment);
       newPlan.schedule[dayIdx] = newDay;
-      onUpdatePlan(newPlan, false);
+      onUpdatePlan(newPlan, true, selectedDay, newAssignment.id);
       setShowAddWorkerModal(false);
   };
 
@@ -398,7 +519,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
       if (dayIdx === -1) return;
 
       const newDay = { ...newPlan.schedule[dayIdx] };
-      newDay.assignments = newDay.assignments.filter(t => t.id !== assignmentId);
+      newDay.assignments = (newDay.assignments || []).filter(t => t.id !== assignmentId);
       
       newDay.dailyTotalGen = newDay.assignments.reduce((sum, t) => sum + t.generations, 0);
       newDay.dailyTotalEdit = newDay.assignments.reduce((sum, t) => sum + t.edits, 0);
@@ -410,12 +531,12 @@ const AssignWork: React.FC<AssignWorkProps> = ({
           totalEdits: newPlan.schedule.reduce((sum, d) => sum + d.dailyTotalEdit, 0)
       };
 
-      onUpdatePlan(newPlan, false);
+      onUpdatePlan(newPlan, true, selectedDay, assignmentId, true);
   };
 
   const handleSave = () => {
     setSaveState('saving');
-    onUpdatePlan(plan, true);
+    onUpdatePlan(plan, true, selectedDay);
     setTimeout(() => setSaveState('saved'), 800);
     setTimeout(() => setSaveState('idle'), 2500);
   };
@@ -608,9 +729,9 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                      </div>
                      
                      {displayedWorkers.length > 0 ? displayedWorkers.map((worker, workerIdx) => {
-                        let workerTasks = currentDayPlan.assignments.filter(t => t.workerId === worker.id);
+                        let workerTasks = (currentDayPlan.assignments || []).filter(t => t.workerId === worker.id);
                         
-                        const relevantTasks = workerTasks.filter(t => {
+                        const relevantTasks = (workerTasks || []).filter(t => {
                             if (t.taskLanguage) return t.taskLanguage === currentLanguage;
                             return (worker.language || 'Telugu') === currentLanguage;
                         });
@@ -622,7 +743,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                                 generations: 0,
                                 edits: 0,
                                 isOnLeave: false,
-                                batchId: 'DEFAULT',
+                                batchId: getDefaultBatchId(),
                                 assignedGenRows: '',
                                 assignedEditRows: '',
                                 taskLanguage: currentLanguage // Virtual one gets current lang
@@ -655,14 +776,15 @@ const AssignWork: React.FC<AssignWorkProps> = ({
 
                                         <div className="col-span-2 min-w-0">
                                             <select 
-                                                value={task.batchId || 'DEFAULT'}
+                                                value={task.isOnLeave ? 'LEAVE' : (task.batchId || 'DEFAULT')}
                                                 onChange={(e) => handleUpdate(task, 'batchId', e.target.value)}
                                                 className={`w-full py-1 h-8 px-2 rounded-md text-[10px] font-bold border outline-none cursor-pointer transition-colors bg-white border-slate-200 text-slate-700 hover:border-blue-300 focus:border-blue-500 min-w-0`}
                                             >
-                                                <option value="DEFAULT">General</option>
                                                 {activeBatches.map(b => (
                                                     <option key={b.id} value={b.id}>{b.batchName}</option>
                                                 ))}
+                                                <option value="DEFAULT">General</option>
+                                                <option value="LEAVE">LEAVE</option>
                                             </select>
                                         </div>
 
@@ -670,10 +792,16 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                                             <div className="relative">
                                                 <input 
                                                     type="text" 
-                                                    value={task.assignedGenRows || (task.assignedRows || '')} 
-                                                    onChange={(e) => handleUpdate(task, 'assignedGenRows', e.target.value)} 
+                                                    value={task.plannedGenRows || ''} 
+                                                    onChange={(e) => handleUpdate(task, 'plannedGenRows', e.target.value)} 
+                                                    onBlur={(e) => {
+                                                        const valid = validateRowInput(e.target.value, task.batchId, 'gen');
+                                                        if (valid !== e.target.value) {
+                                                            handleUpdate(task, 'plannedGenRows', valid);
+                                                        }
+                                                    }}
                                                     className={`w-full py-1 h-8 px-2 font-mono text-sm font-bold border border-purple-200 rounded-md outline-none focus:ring-1 focus:ring-purple-400 bg-purple-50/30 text-slate-900 placeholder:text-slate-300 text-center min-w-0`} 
-                                                    placeholder="e.g. 2 5"
+                                                    placeholder=""
                                                 />
                                             </div>
                                         </div>
@@ -692,10 +820,16 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                                             <div className="relative">
                                                 <input 
                                                     type="text" 
-                                                    value={task.assignedEditRows || ''} 
-                                                    onChange={(e) => handleUpdate(task, 'assignedEditRows', e.target.value)} 
+                                                    value={task.plannedEditRows || ''} 
+                                                    onChange={(e) => handleUpdate(task, 'plannedEditRows', e.target.value)} 
+                                                    onBlur={(e) => {
+                                                        const valid = validateRowInput(e.target.value, task.batchId, 'edit');
+                                                        if (valid !== e.target.value) {
+                                                            handleUpdate(task, 'plannedEditRows', valid);
+                                                        }
+                                                    }}
                                                     className={`w-full py-1 h-8 px-2 font-mono text-sm font-bold border border-blue-200 rounded-md outline-none focus:ring-1 focus:ring-blue-400 bg-blue-50/30 text-slate-900 placeholder:text-slate-300 text-center min-w-0`} 
-                                                    placeholder="e.g. 2 5"
+                                                    placeholder=""
                                                 />
                                             </div>
                                         </div>

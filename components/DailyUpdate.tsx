@@ -9,7 +9,9 @@ interface DailyUpdateProps {
   workers: Worker[]; // Filtered workers for current team (contains assists too, usually)
   allWorkers?: Worker[]; // All workers for lookup
   batches?: Batch[];
-  onUpdatePlan: (plan: ProductionPlan, saveToCloud?: boolean) => void;
+  leaves?: Record<string, number[]>; // Add leaves prop
+  onUpdatePlan: (plan: ProductionPlan, saveToCloud?: boolean, dayToSave?: number, assignmentId?: string, isDeletion?: boolean) => void;
+  onToggleLeave?: (workerId: string, day: number) => void;
   onDeleteBatch: (batchId: string) => void;
   onEditBatch: (batch: Batch) => void;
   currentLanguage: string;
@@ -21,19 +23,28 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
   workers, 
   allWorkers = [],
   batches = [], 
+  leaves = {}, // Default to empty object
   onUpdatePlan, 
+  onToggleLeave,
   onDeleteBatch,
   onEditBatch,
   currentLanguage
 }) => {
   // Helper to calculate project timeline
-  const getProjectStartDate = () => new Date(workload.startDate);
+  const getProjectStartDate = () => {
+      // Parse YYYY-MM-DD manually to construct a Local Date at 00:00
+      // This ensures that when we add days, we stay in Local time, so getDate() returns the expected day.
+      // This aligns with App.tsx which uses UTC math to derive the same YYYY-MM-DD string.
+      const [y, m, d] = workload.startDate.split('-').map(Number);
+      return new Date(y, m - 1, d);
+  };
   
   const getDayIndexFromDate = (date: Date) => {
     const start = getProjectStartDate();
-    const d1 = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    // Normalize input date to midnight local
     const d2 = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const diffTime = d2.getTime() - d1.getTime();
+    
+    const diffTime = d2.getTime() - start.getTime();
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; 
   };
 
@@ -91,6 +102,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
   // --- Worker Display Logic ---
   // 1. Default Team Members (excluding Assist)
   const defaultTeam = useMemo(() => {
+    if (!Array.isArray(workers)) return [];
     return workers.filter(w => w.role !== 'Assist');
   }, [workers]);
 
@@ -102,7 +114,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
       defaultTeam.forEach(w => relevantWorkerIds.add(w.id));
 
       // Scan assignments for explicit additions or assist members
-      currentDayPlan.assignments.forEach(task => {
+      (currentDayPlan.assignments || []).forEach(task => {
           // If task has explicit language context, use it
           if (task.taskLanguage) {
               if (task.taskLanguage === currentLanguage) {
@@ -145,7 +157,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
   const teamStats = useMemo(() => {
       let gen = 0;
       let edit = 0;
-      currentDayPlan.assignments.forEach(t => {
+      (currentDayPlan.assignments || []).forEach(t => {
           // We include the task if:
           // 1. It is explicitly tagged with this language
           // 2. OR It is NOT tagged, but the worker is part of this team (in filtered 'workers')
@@ -196,8 +208,8 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
         return count;
     };
 
-    plan.schedule.forEach(day => {
-        day.assignments.forEach(task => {
+    (plan.schedule || []).forEach(day => {
+        (day.assignments || []).forEach(task => {
             if (task.batchId && task.batchId !== 'DEFAULT') {
                  // Counts all assigned work regardless of lock status to show real-time progress
                  if (!stats[task.batchId]) stats[task.batchId] = { assignedGen: 0, assignedEdit: 0 };
@@ -244,7 +256,26 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
     });
   }, [plan, batches, allWorkers]);
 
-  const activeBatches = batchProgress.filter(b => b.status === 'active' && b.progress < 100);
+  const activeBatches = (batchProgress || []).filter(b => b.status === 'active');
+
+  const getDefaultBatchId = () => {
+    const langBatches = (batches || []).filter(b => 
+      (b.language || 'Telugu') === currentLanguage && 
+      b.status === 'active'
+    );
+    
+    if (langBatches.length === 0) return 'DEFAULT';
+
+    // Sort: prioritize those not finished (< 100%), then by newest
+    const sorted = [...langBatches].sort((a, b) => {
+      const aFinished = (a.progress || 0) >= 100;
+      const bFinished = (b.progress || 0) >= 100;
+      if (aFinished !== bFinished) return aFinished ? 1 : -1;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
+    return sorted[0].id;
+  };
 
   // Navigation
   const goToPreviousWeek = () => {
@@ -273,6 +304,68 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
     setViewDate(getDateFromDayIndex(newDay));
   };
 
+  const copyPlannedForTask = (task: TaskAssignment) => {
+    if (isCurrentDayLocked) return;
+    
+    const newPlan = { ...plan, schedule: [...plan.schedule] };
+    const dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
+    if (dayIdx === -1) return;
+    
+    const newDay = { ...newPlan.schedule[dayIdx], assignments: [...(newPlan.schedule[dayIdx].assignments || [])] };
+    const taskIdx = newDay.assignments.findIndex(t => t.id === task.id || (t.workerId === task.workerId && !t.id));
+    
+    if (taskIdx !== -1) {
+        const updatedTask = { ...newDay.assignments[taskIdx] };
+        
+        if (updatedTask.plannedGenRows) {
+            updatedTask.assignedGenRows = updatedTask.plannedGenRows;
+            updatedTask.generations = updatedTask.plannedGenerations || 0;
+        }
+        if (updatedTask.plannedEditRows) {
+            updatedTask.assignedEditRows = updatedTask.plannedEditRows;
+            updatedTask.edits = updatedTask.plannedEdits || 0;
+        }
+        
+        newDay.assignments[taskIdx] = updatedTask;
+        newPlan.schedule[dayIdx] = newDay;
+        onUpdatePlan(newPlan, true, selectedDay, updatedTask.id || updatedTask.workerId);
+    }
+  };
+
+  const copyAllPlannedForDay = () => {
+    if (isCurrentDayLocked) return;
+    
+    const newPlan = { ...plan, schedule: [...plan.schedule] };
+    const dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
+    if (dayIdx === -1) return;
+    
+    const newDay = { ...newPlan.schedule[dayIdx], assignments: [...(newPlan.schedule[dayIdx].assignments || [])] };
+    
+    let changed = false;
+    newDay.assignments = newDay.assignments.map(task => {
+        // Only copy if it belongs to current language and has planned data
+        if (task.taskLanguage === currentLanguage && (task.plannedGenRows || task.plannedEditRows)) {
+            changed = true;
+            const updatedTask = { ...task };
+            if (task.plannedGenRows) {
+                updatedTask.assignedGenRows = task.plannedGenRows;
+                updatedTask.generations = task.plannedGenerations || 0;
+            }
+            if (task.plannedEditRows) {
+                updatedTask.assignedEditRows = task.plannedEditRows;
+                updatedTask.edits = task.plannedEdits || 0;
+            }
+            return updatedTask;
+        }
+        return task;
+    });
+    
+    if (changed) {
+        newPlan.schedule[dayIdx] = newDay;
+        onUpdatePlan(newPlan, true, selectedDay);
+    }
+  };
+
   // CRUD
   const handleUpdate = (task: TaskAssignment, field: 'generations' | 'edits' | 'batchId' | 'assignedGenRows' | 'assignedEditRows', value: any) => {
       let val = value;
@@ -298,7 +391,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
           dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
       }
       
-      const newDay = { ...newPlan.schedule[dayIdx], assignments: [...newPlan.schedule[dayIdx].assignments] };
+      const newDay = { ...newPlan.schedule[dayIdx], assignments: [...(newPlan.schedule[dayIdx].assignments || [])] };
       
       let taskIdx = -1;
       if (task.id) {
@@ -333,13 +426,36 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                   updatedTask.generations = 0;
                   updatedTask.edits = 0;
                   updatedTask.batchId = undefined;
+                  
+                  // Update local plan first
+                  newDay.assignments[taskIdx] = updatedTask;
+                  newPlan.schedule[dayIdx] = newDay;
+                  
+                  if (onToggleLeave) {
+                      onToggleLeave(task.workerId, selectedDay, true, newPlan);
+                      return; // Skip onUpdatePlan
+                  }
               } else {
+                  if (updatedTask.isOnLeave) {
+                       updatedTask.isOnLeave = false;
+                       updatedTask.batchId = value;
+                       currentBatchId = value;
+
+                       // Update local plan first
+                       newDay.assignments[taskIdx] = updatedTask;
+                       newPlan.schedule[dayIdx] = newDay;
+
+                       if (onToggleLeave) {
+                           onToggleLeave(task.workerId, selectedDay, false, newPlan);
+                           return; // Skip onUpdatePlan
+                       }
+                  }
+                  
                   updatedTask.isOnLeave = false;
                   updatedTask.batchId = value;
                   currentBatchId = value;
                   // Recalculate based on new batch constraints if rows exist
-                  if (updatedTask.assignedGenRows) updatedTask.generations = countRows(updatedTask.assignedGenRows, currentBatchId);
-                  if (updatedTask.assignedEditRows) updatedTask.edits = countRows(updatedTask.assignedEditRows, currentBatchId);
+                  // ... (rest of logic)
               }
           } else if (field === 'assignedGenRows' || field === 'assignedEditRows') {
              updatedTask[field] = val;
@@ -347,6 +463,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
              if (field === 'assignedGenRows') updatedTask.generations = count;
              if (field === 'assignedEditRows') updatedTask.edits = count;
           } else {
+              // @ts-ignore
               updatedTask[field] = val;
           }
           newDay.assignments[taskIdx] = updatedTask;
@@ -366,6 +483,15 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                 newTask.edits = 0;
                 newTask.batchId = undefined;
                 currentBatchId = undefined;
+                
+                // Push to plan first
+                newDay.assignments.push(newTask);
+                newPlan.schedule[dayIdx] = newDay;
+
+                if (onToggleLeave) {
+                    onToggleLeave(task.workerId, selectedDay, true, newPlan);
+                    return; // Skip onUpdatePlan
+                }
               } else {
                 newTask.isOnLeave = false;
                 newTask.batchId = value;
@@ -378,7 +504,11 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
           } else if (field === 'assignedEditRows') {
              newTask.edits = countRows(val as string, currentBatchId);
           }
-          newDay.assignments.push(newTask);
+          
+          // Only push if we haven't already (for non-LEAVE cases)
+          if (field !== 'batchId' || value !== 'LEAVE') {
+              newDay.assignments.push(newTask);
+          }
       }
 
       newDay.dailyTotalGen = newDay.assignments.reduce((sum, t) => sum + t.generations, 0);
@@ -391,7 +521,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
           totalEdits: newPlan.schedule.reduce((sum, d) => sum + d.dailyTotalEdit, 0)
       };
 
-      onUpdatePlan(newPlan, false);
+      onUpdatePlan(newPlan, true, selectedDay, task.id || task.workerId);
   };
 
   const addSplitAssignment = (worker: Worker) => {
@@ -412,9 +542,9 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
           dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
       }
 
-      const newDay = { ...newPlan.schedule[dayIdx], assignments: [...newPlan.schedule[dayIdx].assignments] };
+      const newDay = { ...newPlan.schedule[dayIdx], assignments: [...(newPlan.schedule[dayIdx].assignments || [])] };
       
-      const newAssignment: TaskAssignment = {
+          const newAssignment: TaskAssignment = {
           id: Math.random().toString(36).substr(2, 9),
           workerId: worker.id,
           person: worker.name,
@@ -422,7 +552,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
           generations: 0,
           edits: 0,
           isOnLeave: false,
-          batchId: 'DEFAULT',
+          batchId: getDefaultBatchId(),
           assignedGenRows: '',
           assignedEditRows: '',
           taskLanguage: currentLanguage // Mark this task as belonging to current view
@@ -430,7 +560,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
       
       newDay.assignments.push(newAssignment);
       newPlan.schedule[dayIdx] = newDay;
-      onUpdatePlan(newPlan, false);
+      onUpdatePlan(newPlan, true, selectedDay, newAssignment.id);
       setShowAddWorkerModal(false); // Close modal if used for adding new worker
   };
 
@@ -440,7 +570,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
       if (dayIdx === -1) return;
 
       const newDay = { ...newPlan.schedule[dayIdx] };
-      newDay.assignments = newDay.assignments.filter(t => t.id !== assignmentId);
+      newDay.assignments = (newDay.assignments || []).filter(t => t.id !== assignmentId);
       
       newDay.dailyTotalGen = newDay.assignments.reduce((sum, t) => sum + t.generations, 0);
       newDay.dailyTotalEdit = newDay.assignments.reduce((sum, t) => sum + t.edits, 0);
@@ -452,7 +582,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
           totalEdits: newPlan.schedule.reduce((sum, d) => sum + d.dailyTotalEdit, 0)
       };
 
-      onUpdatePlan(newPlan, false);
+      onUpdatePlan(newPlan, true, selectedDay, assignmentId, true);
   };
 
   const toggleLock = () => {
@@ -469,7 +599,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                   generations: 0, 
                   edits: 0, 
                   isOnLeave: false,
-                  batchId: 'DEFAULT'
+                  batchId: getDefaultBatchId()
               })),
               dailyTotalGen: 0, dailyTotalEdit: 0, locked: false, lockedTeams: [currentLanguage]
           };
@@ -477,16 +607,16 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
           newPlan.schedule.sort((a, b) => a.day - b.day);
       } else {
           const day = newPlan.schedule[dayIdx];
-          const currentLockedTeams = day.lockedTeams || (day.locked ? ['Telugu', 'Tamil'] : []);
+          const currentLockedTeams = day.lockedTeams || (day.locked ? ['Telugu', 'Tamil', 'Malayalam', 'Kannada'] : []);
           
           if (currentLockedTeams.includes(currentLanguage)) {
-              day.lockedTeams = currentLockedTeams.filter(l => l !== currentLanguage);
+              day.lockedTeams = (currentLockedTeams || []).filter(l => l !== currentLanguage);
           } else {
               day.lockedTeams = [...currentLockedTeams, currentLanguage];
           }
           day.locked = day.lockedTeams.length > 0;
       }
-      onUpdatePlan(newPlan, true);
+      onUpdatePlan(newPlan, true, selectedDay);
   };
 
   const renderCalendar = () => {
@@ -744,13 +874,22 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                          <div className="col-span-3 text-center flex items-center justify-center gap-2">
                              Generation 
                              {!isCurrentDayLocked && (
-                                 <button 
-                                    onClick={() => setShowAddWorkerModal(true)} 
-                                    className="p-1 bg-white border border-slate-200 rounded-md hover:text-blue-600 hover:border-blue-300 transition-all text-slate-400"
-                                    title="Add contributor from other team/assist"
-                                 >
-                                     <Plus size={10} strokeWidth={4} />
-                                 </button>
+                                 <div className="flex items-center gap-1">
+                                     <button 
+                                       onClick={() => setShowAddWorkerModal(true)} 
+                                       className="p-1 bg-white border border-slate-200 rounded-md hover:text-blue-600 hover:border-blue-300 transition-all text-slate-400"
+                                       title="Add contributor from other team/assist"
+                                     >
+                                         <Plus size={10} strokeWidth={4} />
+                                     </button>
+                                     <button 
+                                       onClick={copyAllPlannedForDay} 
+                                       className="p-1 bg-white border border-slate-200 rounded-md hover:text-purple-600 hover:border-purple-300 transition-all text-slate-400"
+                                       title="Copy All Assigned Data"
+                                     >
+                                         <Layers size={10} strokeWidth={4} />
+                                     </button>
+                                 </div>
                              )}
                          </div>
                          <div className="col-span-3 text-center">Editing</div>
@@ -758,10 +897,10 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                      </div>
                      
                      {displayedWorkers.length > 0 ? displayedWorkers.map((worker, workerIdx) => {
-                        let workerTasks = currentDayPlan.assignments.filter(t => t.workerId === worker.id);
+                        let workerTasks = (currentDayPlan.assignments || []).filter(t => t.workerId === worker.id);
                         
                         // Filter tasks again for display to only show relevant ones
-                        const relevantTasks = workerTasks.filter(t => {
+                        const relevantTasks = (workerTasks || []).filter(t => {
                             // 1. Explicitly tagged with current language
                             if (t.taskLanguage === currentLanguage) return true;
                             
@@ -796,8 +935,8 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                                 role: worker.role,
                                 generations: 0,
                                 edits: 0,
-                                isOnLeave: false,
-                                batchId: 'DEFAULT',
+                                isOnLeave: !!(leaves[worker.id] && leaves[worker.id].includes(selectedDay)),
+                                batchId: (leaves[worker.id] && leaves[worker.id].includes(selectedDay)) ? undefined : getDefaultBatchId(),
                                 assignedGenRows: '',
                                 assignedEditRows: '',
                                 taskLanguage: currentLanguage // Virtual one gets current lang
@@ -819,6 +958,15 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                                                             <div className="text-sm font-bold text-slate-700 truncate" title={worker.name}>{worker.name}</div>
                                                             <div className="text-[10px] text-slate-400 truncate flex items-center gap-1">
                                                                 {worker.role} {worker.language !== currentLanguage && <span className="bg-slate-200 px-1 rounded text-slate-600">{worker.language}</span>}
+                                                                {!isCurrentDayLocked && task.plannedGenRows && (
+                                                                    <button 
+                                                                        onClick={() => copyPlannedForTask(task)}
+                                                                        className="ml-1 p-0.5 text-slate-300 hover:text-blue-500 transition-colors"
+                                                                        title="Copy Assigned Data"
+                                                                    >
+                                                                        <CornerDownRight size={10} />
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </>
@@ -864,10 +1012,10 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                                                     : 'bg-white border-slate-200 text-slate-700 hover:border-blue-300 focus:border-blue-500'
                                                 } ${isCurrentDayLocked ? 'opacity-50 cursor-not-allowed bg-slate-100' : ''}`}
                                             >
-                                                <option value="DEFAULT">General</option>
                                                 {activeBatches.map(b => (
                                                     <option key={b.id} value={b.id}>{b.batchName}</option>
                                                 ))}
+                                                <option value="DEFAULT">General</option>
                                                 <option value="LEAVE">LEAVE</option>
                                             </select>
                                         </div>
@@ -893,7 +1041,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                                                     value={task.assignedGenRows || (task.assignedRows || '')} 
                                                     onChange={(e) => handleUpdate(task, 'assignedGenRows', e.target.value)} 
                                                     className={`flex-1 min-w-0 py-1 h-7 px-2 text-left font-mono text-xs font-bold border border-purple-200 rounded-md outline-none focus:ring-1 focus:ring-purple-400 bg-purple-50/30 text-slate-900 placeholder:text-slate-300 ${isCurrentDayLocked ? 'opacity-50 cursor-not-allowed' : ''}`} 
-                                                    placeholder="e.g. 2 5 8"
+                                                    placeholder=""
                                                 />
                                             ) : <div className="flex-1 h-7 flex items-center justify-center text-slate-300">-</div>}
                                         </div>
@@ -919,7 +1067,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                                                     value={task.assignedEditRows || ''} 
                                                     onChange={(e) => handleUpdate(task, 'assignedEditRows', e.target.value)} 
                                                     className={`flex-1 min-w-0 py-1 h-7 px-2 text-left font-mono text-xs font-bold border border-blue-200 rounded-md outline-none focus:ring-1 focus:ring-blue-400 bg-blue-50/30 text-slate-900 placeholder:text-slate-300 ${isCurrentDayLocked ? 'opacity-50 cursor-not-allowed' : ''}`} 
-                                                    placeholder="e.g. 2 5 8"
+                                                    placeholder=""
                                                 />
                                             ) : <div className="flex-1 h-7 flex items-center justify-center text-slate-300">-</div>}
                                         </div>

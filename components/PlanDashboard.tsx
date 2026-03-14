@@ -29,8 +29,8 @@ const PlanDashboard: React.FC<PlanDashboardProps> = ({
   const [activeTab, setActiveTab] = useState<number | 'ALL'>('ALL');
 
   const displayedSchedule = activeTab === 'ALL' 
-    ? schedule 
-    : schedule.filter(d => d.day === activeTab);
+    ? (schedule || [])
+    : (schedule || []).filter(d => d.day === activeTab);
 
   const stats = useMemo(() => {
     const currentDayIndex = typeof activeTab === 'number' ? activeTab : schedule.length;
@@ -39,7 +39,7 @@ const PlanDashboard: React.FC<PlanDashboardProps> = ({
     const completedGen = schedule.reduce((sum, d) => sum + d.dailyTotalGen, 0);
     const completedEdit = schedule.reduce((sum, d) => sum + d.dailyTotalEdit, 0);
 
-    const lockedDays = schedule.filter(d => d.locked);
+    const lockedDays = (schedule || []).filter(d => d.locked);
     
     const activeDayPlan = schedule.find(d => d.day === currentDayIndex);
     const dayGen = activeDayPlan?.dailyTotalGen || 0;

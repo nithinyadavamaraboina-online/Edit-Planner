@@ -77,7 +77,7 @@ const WorkerForm: React.FC<WorkerFormProps> = ({ workers, setWorkers, currentLan
             <div>
                <input 
                 type="text" 
-                placeholder="Name (e.g. John)"
+                placeholder="Name (John)"
                 className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-[#F26C21] focus:border-[#F26C21] outline-none bg-white text-slate-900 placeholder:text-slate-400"
                 value={newWorker.name}
                 onChange={e => setNewWorker({...newWorker, name: e.target.value})}

@@ -1,9 +1,12 @@
 
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, doc, writeBatch, serverTimestamp, Firestore, query, orderBy, getDocs, getDoc, deleteDoc, setDoc, onSnapshot } from 'firebase/firestore';
-import { Worker, Workload, ProductionPlan, Batch } from '../types';
+import { getFirestore, collection, addDoc, doc, writeBatch, serverTimestamp, Firestore, query, orderBy, getDocs, getDoc, deleteDoc, setDoc, onSnapshot, updateDoc, deleteField } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, Auth, User as FirebaseUser } from 'firebase/auth';
+import { Worker, Workload, ProductionPlan, Batch, DayPlan, TaskAssignment } from '../types';
 
 // ... (existing code)
+
+const DEFAULT_LANGUAGES = ['Telugu', 'Tamil', 'Malayalam', 'Kannada'];
 
 /**
  * Subscribes to real-time updates for a plan.
@@ -14,38 +17,62 @@ export const subscribeToPlan = (planId: string, onUpdate: (data: any) => void) =
   const planDocRef = doc(database, 'production_plans', planId);
   const daysColRef = collection(planDocRef, 'days');
 
-  // We need to combine data from the main doc and the subcollection.
-  // We'll listen to both and merge them.
-  
-  let currentMainData: any = null;
-  let currentSchedule: any[] = [];
-  let isInitialLoad = true;
+  let mainData: any = null;
+  const daysData: Record<number, DayPlan> = {};
+  const assignmentsData: Record<number, Record<string, TaskAssignment>> = {};
+  const assignmentUnsubs: Record<number, () => void> = {};
 
-  const notify = () => {
-    if (currentMainData && currentSchedule.length > 0) {
-       onUpdate({
-         ...currentMainData,
-         plan: {
-           ...currentMainData.plan,
-           schedule: currentSchedule
-         }
-       });
-    }
+    const emit = () => {
+    if (!mainData) return;
+    
+    // Merge daysData and assignmentsData into a schedule
+    // We look at all days we know about (from mainData.plan.schedule OR daysData)
+    const dayNumbers = new Set<number>();
+    (mainData.plan.schedule || []).forEach((d: any) => dayNumbers.add(d.day));
+    Object.keys(daysData).forEach(k => dayNumbers.add(parseInt(k)));
+
+    const schedule = Array.from(dayNumbers).map(dayNum => {
+        // Start with data from main doc if available
+        const baseDay = (mainData.plan.schedule || []).find((d: any) => d.day === dayNum) || { day: dayNum, assignments: [] };
+        
+        // Override with granular day data if available
+        const dayPlan = daysData[dayNum] ? { ...daysData[dayNum] } : { ...baseDay };
+        
+        // If we have granular assignments for this day, use them
+        // CRITICAL FIX: We must merge granular assignments with existing ones, not just replace
+        // If assignmentsData[dayNum] exists, it contains the LATEST state of assignments for that day
+        if (assignmentsData[dayNum]) {
+            dayPlan.assignments = Object.values(assignmentsData[dayNum]);
+        } else if (!dayPlan.assignments) {
+            dayPlan.assignments = [];
+        }
+        
+        return dayPlan;
+    }).sort((a, b) => a.day - b.day);
+    
+    onUpdate({
+      ...mainData,
+      plan: {
+        ...mainData.plan,
+        schedule: schedule
+      }
+    });
   };
 
   const unsubMain = onSnapshot(planDocRef, (doc) => {
       if (doc.exists()) {
           const data = doc.data();
-          currentMainData = {
+          mainData = {
             workers: data.workers,
             workload: data.workload,
             batches: data.batches || [],
+            languages: data.languages || DEFAULT_LANGUAGES,
             plan: {
               summary: data.summary,
               bottlenecks: data.bottlenecks,
               constraints: data.constraints,
               risks: data.risks,
-              schedule: [] // Placeholder, will be filled by subcollection listener
+              schedule: data.schedule || []
             },
             projectMeta: {
                 id: doc.id,
@@ -54,20 +81,61 @@ export const subscribeToPlan = (planId: string, onUpdate: (data: any) => void) =
                 synced: true
             }
           };
-          notify();
+          emit();
       }
   });
 
-  const unsubDays = onSnapshot(query(daysColRef), (snapshot) => {
-      currentSchedule = snapshot.docs
-        .map(d => d.data() as any)
-        .sort((a, b) => a.day - b.day);
-      notify();
+  const unsubDays = onSnapshot(daysColRef, (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+          const dayId = change.doc.id;
+          const dayNum = parseInt(dayId);
+          
+          if (change.type === 'removed') {
+              delete daysData[dayNum];
+              if (assignmentUnsubs[dayNum]) {
+                  assignmentUnsubs[dayNum]();
+                  delete assignmentUnsubs[dayNum];
+              }
+              delete assignmentsData[dayNum];
+          } else {
+              daysData[dayNum] = change.doc.data() as DayPlan;
+              
+              // Subscribe to assignments for this day if not already
+              if (!assignmentUnsubs[dayNum]) {
+                  const assignmentsColRef = collection(doc(daysColRef, dayId), 'assignments');
+                  
+                  // Initialize assignmentsData for this day if needed
+                  if (!assignmentsData[dayNum]) {
+                      assignmentsData[dayNum] = {};
+                      // Pre-populate with existing assignments from dayData if available
+                      // This prevents flashing empty assignments while waiting for subcollection
+                      if (daysData[dayNum].assignments) {
+                          daysData[dayNum].assignments.forEach(a => {
+                              assignmentsData[dayNum][a.id || a.workerId] = a;
+                          });
+                      }
+                  }
+
+                  assignmentUnsubs[dayNum] = onSnapshot(assignmentsColRef, (assignSnapshot) => {
+                      assignSnapshot.docChanges().forEach((assignChange) => {
+                          if (assignChange.type === 'removed') {
+                              delete assignmentsData[dayNum][assignChange.doc.id];
+                          } else {
+                              assignmentsData[dayNum][assignChange.doc.id] = assignChange.doc.data() as TaskAssignment;
+                          }
+                      });
+                      emit();
+                  });
+              }
+          }
+      });
+      emit();
   });
 
   return () => {
-      unsubMain();
-      unsubDays();
+    unsubMain();
+    unsubDays();
+    Object.values(assignmentUnsubs).forEach(unsub => unsub());
   };
 };
 
@@ -84,6 +152,7 @@ const firebaseConfig = {
 
 let app: FirebaseApp | undefined;
 let db: Firestore | undefined;
+let auth: Auth | undefined;
 
 export interface SavedPlanMeta {
   id: string;
@@ -132,6 +201,141 @@ const getDb = () => {
 };
 
 /**
+ * Initializes or retrieves the Auth instance.
+ */
+export const getAuthInstance = () => {
+  if (auth) return auth;
+
+  if (getApps().length === 0) {
+    app = initializeApp(firebaseConfig);
+  } else {
+    app = getApp();
+  }
+  
+  auth = getAuth(app);
+  return auth;
+};
+
+export const signInWithGoogle = async () => {
+  const authInstance = getAuthInstance();
+  const provider = new GoogleAuthProvider();
+  try {
+    const result = await signInWithPopup(authInstance, provider);
+    return result.user;
+  } catch (error) {
+    console.error("Error signing in with Google", error);
+    throw error;
+  }
+};
+
+export const signOutUser = async () => {
+  const authInstance = getAuthInstance();
+  try {
+    await signOut(authInstance);
+  } catch (error) {
+    console.error("Error signing out", error);
+    throw error;
+  }
+};
+
+export const onAuthChange = (callback: (user: FirebaseUser | null) => void) => {
+  const authInstance = getAuthInstance();
+  return onAuthStateChanged(authInstance, callback);
+};
+
+/**
+ * Saves a single day to the cloud.
+ */
+export const saveDayToCloud = async (planId: string, dayPlan: DayPlan) => {
+    try {
+        const database = getDb();
+        const dayDocRef = doc(database, 'production_plans', planId, 'days', dayPlan.day.toString());
+        
+        // Save day metadata (totals, locked status) but NOT the assignments array
+        // to avoid overwriting granular assignment updates
+        const { assignments, ...dayMeta } = dayPlan;
+        await setDoc(dayDocRef, sanitizeForFirestore(dayMeta), { merge: true });
+
+        // Save assignments granularly
+        if (assignments && assignments.length > 0) {
+            const batch = writeBatch(database);
+            assignments.forEach(task => {
+                const taskRef = doc(dayDocRef, 'assignments', task.id || task.workerId);
+                batch.set(taskRef, sanitizeForFirestore(task), { merge: true });
+            });
+            await batch.commit();
+        }
+    } catch (e) {
+        console.error("Error saving day to cloud:", e);
+        throw e;
+    }
+};
+
+/**
+ * Saves a single assignment to the cloud.
+ */
+export const saveAssignmentToCloud = async (planId: string, dayNum: number, assignment: TaskAssignment) => {
+    try {
+        const database = getDb();
+        const taskRef = doc(database, 'production_plans', planId, 'days', dayNum.toString(), 'assignments', assignment.id || assignment.workerId);
+        await setDoc(taskRef, sanitizeForFirestore(assignment), { merge: true });
+    } catch (e) {
+        console.error("Error saving assignment to cloud:", e);
+        throw e;
+    }
+};
+
+/**
+ * Deletes an assignment from the cloud.
+ */
+export const deleteAssignmentFromCloud = async (planId: string, dayNum: number, assignmentId: string) => {
+    try {
+        const database = getDb();
+        const taskRef = doc(database, 'production_plans', planId, 'days', dayNum.toString(), 'assignments', assignmentId);
+        await deleteDoc(taskRef);
+    } catch (e) {
+        console.error("Error deleting assignment from cloud:", e);
+        throw e;
+    }
+};
+
+/**
+ * Presence Tracking
+ */
+export const updatePresence = async (planId: string, userId: string, userName: string, role: string, language: string) => {
+    try {
+        const database = getDb();
+        const presenceRef = doc(database, 'production_plans', planId, 'presence', userId);
+        await setDoc(presenceRef, {
+            userId,
+            userName,
+            role,
+            language,
+            lastActive: serverTimestamp()
+        });
+    } catch (e) {
+        console.error("Error updating presence:", e);
+    }
+};
+
+export const subscribeToPresence = (planId: string, onUpdate: (users: any[]) => void) => {
+    const database = getDb();
+    const presenceCol = collection(database, 'production_plans', planId, 'presence');
+    
+    return onSnapshot(presenceCol, (snapshot) => {
+        const now = Date.now();
+        const users = snapshot.docs.map(doc => doc.data())
+            .filter(u => {
+                // Filter out users inactive for more than 5 minutes
+                if (!u.lastActive) return true;
+                const lastActive = u.lastActive.toMillis ? u.lastActive.toMillis() : u.lastActive;
+                return (now - lastActive) < 300000;
+            });
+        onUpdate(users);
+    });
+};
+
+/**
  * Saves the current production plan to Firestore.
  * If planId is provided, it updates the existing document. Otherwise, creates a new one.
  */
@@ -143,13 +347,14 @@ export const savePlanToCloud = async (
   plan: ProductionPlan,
   batches: Batch[] = [],
   languages: string[] = [],
-  planId?: string
+  planId?: string,
+  skipSchedule: boolean = false
 ) => {
   try {
     const database = getDb();
     
     // Sanitize all inputs to ensure no 'undefined' values are passed to Firestore
-    const payload = sanitizeForFirestore({
+    const payload: any = {
       projectName,
       notes,
       summary: plan.summary,
@@ -160,38 +365,45 @@ export const savePlanToCloud = async (
       bottlenecks: plan.bottlenecks,
       constraints: plan.constraints,
       risks: plan.risks,
-    });
+    };
 
-    let planRef;
+    if (!skipSchedule) {
+        payload.schedule = plan.schedule;
+    }
+
+    const sanitizedPayload = sanitizeForFirestore(payload);
+
+    let finalPlanId = planId;
     
     if (planId) {
         // UPDATE existing document
-        planRef = doc(database, 'production_plans', planId);
+        const planRef = doc(database, 'production_plans', planId);
         await setDoc(planRef, { 
-            ...payload, 
+            ...sanitizedPayload, 
             updatedAt: serverTimestamp() 
         }, { merge: true });
     } else {
         // CREATE new document
-        planRef = await addDoc(collection(database, 'production_plans'), {
-            ...payload,
+        const planRef = await addDoc(collection(database, 'production_plans'), {
+            ...sanitizedPayload,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp()
         });
+        finalPlanId = planRef.id;
     }
 
-    // 2. Use a WriteBatch to store each day in the 'days' subcollection efficiently
-    const batch = writeBatch(database);
-    const daysCollection = collection(planRef, 'days');
+    // Also save all days to subcollection for granular multi-user support
+    // only if not skipping schedule or if it's a new plan
+    if (finalPlanId && plan.schedule.length > 0 && !skipSchedule) {
+        const batch = writeBatch(database);
+        plan.schedule.forEach(day => {
+            const dayDocRef = doc(database, 'production_plans', finalPlanId!, 'days', day.day.toString());
+            batch.set(dayDocRef, sanitizeForFirestore(day), { merge: true });
+        });
+        await batch.commit();
+    }
 
-    plan.schedule.forEach((dayData) => {
-      // Use day_X as document ID for consistency
-      const dayDocRef = doc(daysCollection, `day_${dayData.day}`);
-      batch.set(dayDocRef, sanitizeForFirestore(dayData));
-    });
-
-    await batch.commit();
-    return planRef.id;
+    return finalPlanId!;
   } catch (error: any) {
     console.error("Firestore Save Error:", error);
     throw error; // Re-throw to be caught by UI
@@ -240,18 +452,21 @@ export const loadPlanFromCloud = async (planId: string) => {
 
   const data = planDoc.data();
   
-  // Fetch days subcollection
-  const daysCol = collection(planDocRef, 'days');
-  const daysSnapshot = await getDocs(daysCol);
-  const schedule = daysSnapshot.docs
-    .map(d => d.data() as any)
-    .sort((a, b) => a.day - b.day);
-
+  // Try to load days from subcollection
+  const daysColRef = collection(planDocRef, 'days');
+  const daysSnapshot = await getDocs(daysColRef);
+  let schedule = data.schedule || [];
+  
+  if (!daysSnapshot.empty) {
+      const subColDays = daysSnapshot.docs.map(d => d.data() as DayPlan).sort((a, b) => a.day - b.day);
+      if (subColDays.length > 0) schedule = subColDays;
+  }
+  
   return {
     workers: data.workers,
     workload: data.workload,
     batches: data.batches || [],
-    languages: data.languages || ['Telugu', 'Tamil'],
+    languages: data.languages || DEFAULT_LANGUAGES,
     plan: {
       summary: data.summary,
       bottlenecks: data.bottlenecks,

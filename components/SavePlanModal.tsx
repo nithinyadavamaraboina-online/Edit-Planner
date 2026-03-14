@@ -39,7 +39,7 @@ const SavePlanModal: React.FC<SavePlanModalProps> = ({ isOpen, onClose, onSave }
               value={projectName}
               onChange={(e) => setProjectName(e.target.value)}
               className="w-full p-3 border border-slate-200 rounded-xl font-medium text-slate-900 bg-white focus:ring-2 focus:ring-[#F26C21] focus:border-[#F26C21] outline-none"
-              placeholder="e.g. October Campaign"
+              placeholder="October Campaign"
               autoFocus
             />
           </div>

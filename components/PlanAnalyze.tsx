@@ -33,7 +33,7 @@ const PlanAnalyze: React.FC<PlanAnalyzeProps> = ({
   const visibleBatches = useMemo(() => {
     return currentUser.role === 'admin' 
         ? batches 
-        : batches.filter(b => b.language === currentUser.language);
+        : batches.filter(b => (b.language || 'Telugu') === currentUser.language);
   }, [batches, currentUser]);
 
   const activeBatchesDetailed = useMemo(() => {

@@ -182,7 +182,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                     onChange={(e) => setNewWorkerLang(e.target.value)}
                                     className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-[#F26C21] bg-slate-50 text-sm font-bold text-slate-800"
                                 >
-                                    {Array.from(new Set(languages)).map(lang => (
+                                    {(Array.from(new Set(languages)) as string[]).map(lang => (
                                         <option key={lang} value={lang}>{lang}</option>
                                     ))}
                                 </select>
@@ -232,7 +232,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                                 onChange={(e) => handleWorkerLanguageChange(worker.id, e.target.value)}
                                                 className="p-1 border border-slate-200 rounded text-xs font-bold bg-white focus:ring-1 focus:ring-purple-500 outline-none text-slate-700 cursor-pointer w-full max-w-[100px]"
                                             >
-                                                {Array.from(new Set(languages)).map(lang => (
+                                                {(Array.from(new Set(languages)) as string[]).map(lang => (
                                                     <option key={lang} value={lang}>{lang}</option>
                                                 ))}
                                             </select>
@@ -268,7 +268,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                 type="text" 
                                 value={newLang}
                                 onChange={(e) => setNewLang(e.target.value)}
-                                placeholder="Language Name (e.g. Kannada)"
+                                placeholder="Language Name (Kannada)"
                                 className="flex-1 p-2.5 border border-slate-300 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-slate-50 text-sm font-bold text-slate-800"
                             />
                             <button 
@@ -281,7 +281,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        {Array.from(new Set(languages)).map(lang => (
+                        {(Array.from(new Set(languages)) as string[]).map(lang => (
                             <div key={lang} className="bg-white border border-slate-200 p-3 px-4 rounded-xl flex items-center justify-between hover:border-purple-200 transition-colors group shadow-sm">
                                 <div className="flex items-center gap-3">
                                     <div className="w-2 h-2 rounded-full bg-purple-400"></div>
