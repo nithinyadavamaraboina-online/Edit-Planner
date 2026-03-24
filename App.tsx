@@ -364,6 +364,7 @@ const App: React.FC = () => {
 
                   setTimeout(() => {
                       isSyncing.current = false;
+                      isRemoteUpdate.current = false;
                   }, 500);
               } catch (err) {
                   console.error("Error processing remote update:", err);
@@ -424,17 +425,30 @@ const App: React.FC = () => {
 
   // Continuous Auto-Save to Cloud
   useEffect(() => {
-    if (isInitialMount.current) {
+    if (isInitialMount.current || isSyncing.current || isRemoteUpdate.current) {
       return;
     }
     
+    // Deep comparison check to prevent unnecessary cloud writes
+    const currentStateString = JSON.stringify({
+        workers,
+        workload,
+        batches: globalBatchesProgress,
+        plan,
+        languages
+    });
+
+    if (currentStateString === lastCloudSync.current) {
+        return;
+    }
+
     // Debounce for 30 seconds
     const timer = setTimeout(() => {
         autoSaveToCloud();
     }, 30000);
 
     return () => clearTimeout(timer);
-  }, [workers, workload, batches, plan, languages]);
+  }, [workers, workload, batches, globalBatchesProgress, plan, languages]);
 
   // Track local updates to prevent remote overwrites
   useEffect(() => {
@@ -512,7 +526,7 @@ const App: React.FC = () => {
   };
 
   const autoSaveToCloud = async (overrides: { plan?: ProductionPlan | null, batches?: Batch[] } = {}) => {
-    if (isSyncing.current) return;
+    if (isSyncing.current || isRemoteUpdate.current) return;
     const planToSave = overrides.plan !== undefined ? overrides.plan : plan;
     const batchesToSave = overrides.batches !== undefined ? overrides.batches : globalBatchesProgress;
 
@@ -753,6 +767,15 @@ const App: React.FC = () => {
       
       setLoading(true);
       try {
+          const dataString = JSON.stringify({
+              workers,
+              workload,
+              batches,
+              plan,
+              languages
+          });
+          lastCloudSync.current = dataString;
+
           // 1. Save to Cloud
           const id = await savePlanToCloud(name, notes, workers, workload, plan, batches, languages, projectMeta?.id);
           
@@ -815,6 +838,15 @@ const App: React.FC = () => {
           // to ensure the cloud matches the imported local state.
           if (data.projectStatus === 'active' && data.projectMeta?.id && data.plan) {
               setLoading(true);
+              const dataString = JSON.stringify({
+                  workers: data.workers || workers,
+                  workload: data.workload || workload,
+                  batches: data.batches ? migrateBatches(data.batches) : batches,
+                  plan: data.plan,
+                  languages: data.languages || languages
+              });
+              lastCloudSync.current = dataString;
+
               await savePlanToCloud(
                   data.projectMeta.name, 
                   data.projectMeta.notes || '', 
