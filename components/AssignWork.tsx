@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { ProductionPlan, Workload, Worker, Batch, TaskAssignment } from '../types';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Layers, Plus, Trash2, CornerDownRight, Hash, Save, Check, Loader2, ArrowRight, CheckCircle, UserPlus, X, Lock, Zap, FileVideo, Edit3 } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Layers, Plus, Trash2, CornerDownRight, Hash, Save, Check, Loader2, ArrowRight, CheckCircle, UserPlus, X, Lock, Zap, FileVideo, Edit3, AlertCircle } from 'lucide-react';
 
 interface AssignWorkProps {
   plan: ProductionPlan;
@@ -10,7 +10,7 @@ interface AssignWorkProps {
   allWorkers?: Worker[]; // All workers
   batches?: Batch[];
   onUpdatePlan: (plan: ProductionPlan, saveToCloud?: boolean, dayToSave?: number, assignmentId?: string, isDeletion?: boolean) => void;
-  onToggleLeave?: (workerId: string, day: number) => void;
+  onToggleLeave?: (workerId: string, day: number, forceState?: boolean, basePlan?: any) => void;
   currentLanguage: string;
 }
 
@@ -63,6 +63,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
   });
 
   const [viewDate, setViewDate] = useState(() => getDateFromDayIndex(selectedDay));
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
 
@@ -203,8 +204,10 @@ const AssignWork: React.FC<AssignWorkProps> = ({
       const normals = parseRows(batch.normalRows);
       const assigned = assignedWorkByBatch[batch.id] || { gen: new Set(), edit: new Set() };
 
-      // STARTING FROM 2 because row 1 is assumed to be headers/excluded
-      for (let i = 2; i <= totalCount + 1; i++) {
+      let minRow = batch.startRow !== undefined ? batch.startRow : 2;
+      let maxRow = batch.endRow !== undefined ? batch.endRow : totalCount + 1;
+
+      for (let i = minRow; i <= maxRow; i++) {
           if (dummies.has(i)) continue; // Skip dummies
 
           const isNormal = normals.has(i);
@@ -223,6 +226,68 @@ const AssignWork: React.FC<AssignWorkProps> = ({
     return { aiGenRows, aiEditRows, normalEditRows };
   }, [batches, currentLanguage, assignedWorkByBatch]);
 
+  const checkDuplicateRows = (inputStr: string, batchId: string | undefined, type: 'gen' | 'edit', currentTaskId: string | undefined) => {
+    if (!inputStr || !batchId || batchId === 'DEFAULT' || batchId === 'LEAVE') return inputStr;
+    
+    const batch = batches.find(b => b.id === batchId);
+    if (!batch) return inputStr;
+
+    const totalRows = batch.aiVideos + batch.normalVideos;
+    const maxRow = batch.endRow !== undefined ? batch.endRow : totalRows + 1;
+    const minRow = batch.startRow !== undefined ? batch.startRow : 2;
+
+    const inputNumbers = inputStr.split(/[\s,]+/).map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+    if (inputNumbers.length === 0) return inputStr;
+
+    const warnings: string[] = [];
+    const duplicates = new Set<number>();
+    const outOfBounds: number[] = [];
+
+    inputNumbers.forEach(n => {
+        if (n < minRow || n > maxRow) {
+            outOfBounds.push(n);
+        }
+    });
+
+    if (outOfBounds.length > 0) {
+        warnings.push(`Row(s) [${outOfBounds.join(', ')}] do not belong to the current batch. The valid range is ${minRow} to ${maxRow}.`);
+    }
+
+    plan.schedule.forEach(day => {
+      (day.assignments || []).forEach(assignment => {
+        if (assignment.batchId === batchId && assignment.id !== currentTaskId) {
+          const existingRowsStr = type === 'gen' 
+            ? (assignment.assignedGenRows || assignment.plannedGenRows || '')
+            : (assignment.assignedEditRows || assignment.plannedEditRows || '');
+            
+          const existingNumbers = existingRowsStr.split(/[\s,]+/).map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+          
+          const overlap = inputNumbers.filter(n => existingNumbers.includes(n) && !outOfBounds.includes(n));
+          if (overlap.length > 0) {
+            const workerName = workers.find(w => w.id === assignment.workerId)?.name || 'Unknown';
+            const exactDate = getDateFromDayIndex(day.day).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' });
+            warnings.push(`Row(s) [${overlap.join(', ')}] already done by ${workerName} on ${exactDate}.`);
+            overlap.forEach(n => duplicates.add(n));
+          }
+        }
+      });
+    });
+
+    if (warnings.length > 0) {
+      // The user requested a browser alert, but system prompt forbids it. 
+      // We will use a custom modal if available, or just console.error and let the user know via a custom toast.
+      // Since we don't have a toast, we will use a simple state-based alert or just console.error.
+      // Wait, the system prompt says: "Do NOT use confirm(), window.confirm(), alert() or window.alert() in the code. The code is running in an iframe and the user will NOT see the confirmation dialog or alerts. Instead, use custom modal UI for these."
+      // I will add a state for `duplicateWarning` and show a modal.
+      setDuplicateWarning(warnings.join('\n\n'));
+      
+      const cleanNumbers = inputNumbers.filter(n => !duplicates.has(n) && !outOfBounds.includes(n));
+      return cleanNumbers.join(' ');
+    }
+    
+    return inputStr;
+  };
+
   const validateRowInput = (value: string, batchId?: string, type?: 'gen' | 'edit') => {
       if (!batchId || batchId === 'DEFAULT' || batchId === 'LEAVE') return value;
       
@@ -230,8 +295,8 @@ const AssignWork: React.FC<AssignWorkProps> = ({
       if (!batch) return value;
 
       const totalRows = batch.aiVideos + batch.normalVideos;
-      const maxRow = totalRows + 1;
-      const minRow = 2;
+      const maxRow = batch.endRow !== undefined ? batch.endRow : totalRows + 1;
+      const minRow = batch.startRow !== undefined ? batch.startRow : 2;
 
       // Parse normals
       const normalSet = new Set<number>();
@@ -416,9 +481,27 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                   updatedTask.plannedGenerations = 0;
                   updatedTask.plannedEdits = 0;
                   updatedTask.batchId = undefined;
-                  if (onToggleLeave) onToggleLeave(task.workerId, selectedDay, true, true);
+                  
+                  newDay.assignments[taskIdx] = updatedTask;
+                  newPlan.schedule[dayIdx] = newDay;
+                  
+                  if (onToggleLeave) {
+                      onToggleLeave(task.workerId, selectedDay, true, newPlan);
+                      return;
+                  }
               } else {
-                  if (updatedTask.isOnLeave && onToggleLeave) onToggleLeave(task.workerId, selectedDay, false, true);
+                  if (updatedTask.isOnLeave) {
+                      updatedTask.isOnLeave = false;
+                      updatedTask.batchId = value;
+                      
+                      newDay.assignments[taskIdx] = updatedTask;
+                      newPlan.schedule[dayIdx] = newDay;
+                      
+                      if (onToggleLeave) {
+                          onToggleLeave(task.workerId, selectedDay, false, newPlan);
+                          return;
+                      }
+                  }
                   updatedTask.isOnLeave = false;
                   updatedTask.batchId = value;
               }
@@ -620,7 +703,13 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                                         className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 border border-transparent hover:border-slate-100 transition-all group"
                                     >
                                         <div className="flex items-center gap-3">
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm ${w.role === 'Intern' ? 'bg-purple-400' : w.role === 'Assist' ? 'bg-orange-400' : 'bg-blue-500'}`}>
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm ${
+                                                w.role === 'Intern' ? 'bg-purple-400' : 
+                                                w.role === 'Assist' ? 'bg-orange-400' : 
+                                                w.role === 'Manager' ? 'bg-emerald-500' :
+                                                w.role === 'TL' ? 'bg-teal-500' :
+                                                'bg-blue-500'
+                                            }`}>
                                                 {w.name.charAt(0)}
                                             </div>
                                             <div className="text-left">
@@ -759,7 +848,13 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                                         <div className="col-span-3 flex items-center gap-2 min-w-0 pr-2">
                                             {index === 0 ? (
                                                 <>
-                                                    <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-sm ${worker.role === 'Intern' ? 'bg-purple-400' : worker.role === 'Assist' ? 'bg-orange-400' : 'bg-blue-500'}`}>{worker.name.charAt(0)}</div>
+                                                    <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-sm ${
+                                                        worker.role === 'Intern' ? 'bg-purple-400' : 
+                                                        worker.role === 'Assist' ? 'bg-orange-400' : 
+                                                        worker.role === 'Manager' ? 'bg-emerald-500' :
+                                                        worker.role === 'TL' ? 'bg-teal-500' :
+                                                        'bg-blue-500'
+                                                    }`}>{worker.name.charAt(0)}</div>
                                                     <div className="min-w-0 flex-1">
                                                         <div className="text-sm font-bold text-slate-700 truncate" title={worker.name}>{worker.name}</div>
                                                         <div className="text-[10px] text-slate-400 truncate flex items-center gap-1">
@@ -795,7 +890,8 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                                                     value={task.plannedGenRows || ''} 
                                                     onChange={(e) => handleUpdate(task, 'plannedGenRows', e.target.value)} 
                                                     onBlur={(e) => {
-                                                        const valid = validateRowInput(e.target.value, task.batchId, 'gen');
+                                                        let valid = validateRowInput(e.target.value, task.batchId, 'gen');
+                                                        valid = checkDuplicateRows(valid, task.batchId, 'gen', task.id);
                                                         if (valid !== e.target.value) {
                                                             handleUpdate(task, 'plannedGenRows', valid);
                                                         }
@@ -823,7 +919,8 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                                                     value={task.plannedEditRows || ''} 
                                                     onChange={(e) => handleUpdate(task, 'plannedEditRows', e.target.value)} 
                                                     onBlur={(e) => {
-                                                        const valid = validateRowInput(e.target.value, task.batchId, 'edit');
+                                                        let valid = validateRowInput(e.target.value, task.batchId, 'edit');
+                                                        valid = checkDuplicateRows(valid, task.batchId, 'edit', task.id);
                                                         if (valid !== e.target.value) {
                                                             handleUpdate(task, 'plannedEditRows', valid);
                                                         }
@@ -885,6 +982,31 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                  </div>
             </div>
         </div>
+
+        {/* Duplicate Warning Modal */}
+        {duplicateWarning && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+                    <div className="p-5 border-b border-slate-100 flex items-center gap-3 bg-red-50">
+                        <div className="p-2 bg-red-100 rounded-lg">
+                            <AlertCircle className="text-red-600" size={20} />
+                        </div>
+                        <h2 className="text-lg font-bold text-red-800">Duplicate Assignment Detected</h2>
+                    </div>
+                    <div className="p-5 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700 font-medium">
+                        {duplicateWarning}
+                    </div>
+                    <div className="p-5 border-t border-slate-100 flex justify-end bg-slate-50">
+                        <button 
+                            onClick={() => setDuplicateWarning(null)}
+                            className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-lg shadow-lg shadow-red-200 transition-all active:scale-95"
+                        >
+                            Understood
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 };

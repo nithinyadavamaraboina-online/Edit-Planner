@@ -1,19 +1,18 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Worker, Workload, ProductionPlan, Batch, User } from './types';
-import PlanAnalyze from './components/PlanAnalyze';
+import { Worker, Workload, ProductionPlan, Batch, User, Leave } from './types';
 import DailyUpdate from './components/DailyUpdate';
 import NewBatchModal from './components/NewBatchModal';
 import SavePlanModal from './components/SavePlanModal';
 import AdminPage from './components/AdminPage'; 
 import AssignWork from './components/AssignWork'; 
 import SettingsModal from './components/SettingsModal';
-import PublicDashboard from './components/PublicDashboard'; // Import the new View
 import LeaveManagement from './components/LeaveManagement';
 import PresenceList from './components/PresenceList';
+import AIManager from './components/AIManager';
 import { generateProductionPlan } from './services/geminiService';
 import { savePlanToCloud, loadPlanFromCloud, deletePlanFromCloud, getSavedPlans, subscribeToPlan, saveDayToCloud, updatePresence, subscribeToPresence, saveAssignmentToCloud, deleteAssignmentFromCloud, signInWithGoogle, signOutUser, onAuthChange } from './services/firestoreService';
-import { Play, RefreshCw, Loader2, CheckCircle, XCircle, TrendingUp, Calendar, X, CloudUpload, FolderCheck, Check, Upload, HardDrive, Trash2, FolderOpen, Brain, Zap, Clock, Rocket, LayoutDashboard, ListChecks, ArrowLeft, PenTool, ChevronRight, Plus, PieChart, Cloud, Layers, Globe, Shield, LogOut, UserCheck, Settings, Moon, Sun } from 'lucide-react';
+import { Play, RefreshCw, Loader2, CheckCircle, XCircle, TrendingUp, Calendar, X, CloudUpload, FolderCheck, Check, Upload, HardDrive, Trash2, FolderOpen, Brain, Zap, Clock, Rocket, LayoutDashboard, ListChecks, ArrowLeft, PenTool, ChevronRight, Plus, PieChart, Cloud, Layers, Globe, Shield, LogOut, UserCheck, Settings, Moon, Sun, Trophy } from 'lucide-react';
 import { User as FirebaseUser } from 'firebase/auth';
 
 const STORAGE_KEY = 'wedo_production_planner_v3';
@@ -21,15 +20,18 @@ const USER_EMAIL = 'nithin.yadav.amaraboina@gmail.com';
 
 // Added language: 'Telugu' to default workers
 const DEFAULT_WORKERS: Worker[] = [
-  { id: '1', name: 'Nithin', role: 'Editor', genCapacity: 0, editCapacity: 9, limitations: 'Edits only. Can edit AI videos same-day.', language: 'Telugu' },
-  { id: '2', name: 'Kishan', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: 'Shared capacity: Max 7 Gen OR 9 Edit OR mix', language: 'Telugu' },
-  { id: '3', name: 'Neha', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: 'Shared capacity: Max 7 Gen OR 9 Edit OR mix', language: 'Telugu' },
-  { id: '4', name: 'Yashwanth', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: 'Shared capacity: Max 7 Gen OR 9 Edit OR mix', language: 'Telugu' },
-  { id: '5', name: 'Intiyaz', role: 'Intern', genCapacity: 6, editCapacity: 0, limitations: 'Generations only', language: 'Telugu' },
-  { id: '6', name: 'Leena', role: 'Intern', genCapacity: 6, editCapacity: 0, limitations: 'Generations only', language: 'Telugu' },
-  { id: '7', name: 'Tamil Editor', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Tamil' },
-  { id: '8', name: 'Malayalam Editor', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Malayalam' },
-  { id: '9', name: 'Kannada Editor', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Kannada' },
+  { id: '1', name: 'Nithin', role: 'Editor', genCapacity: 0, editCapacity: 9, limitations: 'Edits only. Can edit AI videos same-day.', language: 'Telugu', joiningDate: '2025-11-12' },
+  { id: '2', name: 'Kishan', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: 'Shared capacity: Max 7 Gen OR 9 Edit OR mix', language: 'Telugu', joiningDate: '2025-10-13' },
+  { id: '3', name: 'Neha', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: 'Shared capacity: Max 7 Gen OR 9 Edit OR mix', language: 'Telugu', joiningDate: '2026-02-16' },
+  { id: '4', name: 'Yashwanth', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: 'Shared capacity: Max 7 Gen OR 9 Edit OR mix', language: 'Telugu', joiningDate: '2026-02-03' },
+  { id: '5', name: 'Intiyaz', role: 'Intern', genCapacity: 6, editCapacity: 0, limitations: 'Generations only', language: 'Telugu', joiningDate: '2026-01-27' },
+  { id: '6', name: 'Leena', role: 'Intern', genCapacity: 6, editCapacity: 0, limitations: 'Generations only', language: 'Telugu', joiningDate: '2026-02-02' },
+  { id: '7', name: 'Aswathi', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2026-01-27' },
+  { id: '8', name: 'Bala', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2025-07-24' },
+  { id: '9', name: 'Ganga', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2026-03-05' },
+  { id: '10', name: 'Kabilan', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2025-12-17' },
+  { id: '11', name: 'Khadayottan', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2026-02-04' },
+  { id: '12', name: 'Monisha', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2026-02-16' },
 ];
 
 const DEFAULT_LANGUAGES = ['Telugu', 'Tamil', 'Malayalam', 'Kannada'];
@@ -45,23 +47,6 @@ const DEFAULT_WORKLOAD: Workload = {
 };
 
 const App: React.FC = () => {
-  // --- PUBLIC DASHBOARD MODE CHECK ---
-  // Initialize lazily to ensure it's constant during the component lifecycle unless URL changes (which implies reload mostly)
-  // This prevents "Rendered fewer hooks than expected" error.
-  const [isPublicMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-        const params = new URLSearchParams(window.location.search);
-        return params.get('mode') === 'dashboard';
-    }
-    return false;
-  });
-
-  // If in public mode, return early immediately. 
-  // Since isPublicMode is determined on first render and doesn't change, hooks below won't be called conditionally.
-  if (isPublicMode) {
-      return <PublicDashboard />;
-  }
-
   // --- STANDARD APP LOGIC ---
   const [authUser, setAuthUser] = useState<FirebaseUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -80,12 +65,12 @@ const App: React.FC = () => {
   
   const [projectStatus, setProjectStatus] = useState<'planning' | 'active'>('planning');
   
-  // Views: 'track' | 'assign' | 'daily' | 'admin' | 'leaves'
-  const [currentView, setCurrentView] = useState<'track' | 'assign' | 'daily' | 'admin' | 'leaves'>('daily');
+  // Views: 'assign' | 'daily' | 'admin' | 'leaves' | 'ai-manager'
+  const [currentView, setCurrentView] = useState<'assign' | 'daily' | 'admin' | 'leaves' | 'ai-manager'>('daily');
 
   const [projectMeta, setProjectMeta] = useState<{id?: string, name: string, notes: string, synced?: boolean} | null>(null);
   const [presence, setPresence] = useState<any[]>([]);
-  const [userId] = useState(() => Math.random().toString(36).substring(2, 15));
+  const userId = authUser?.uid || Math.random().toString(36).substring(2, 15);
 
   const [loading, setLoading] = useState(false);
   const [cloudSaving, setCloudSaving] = useState(false);
@@ -97,12 +82,15 @@ const App: React.FC = () => {
   
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'idle'>('idle');
+  const [conflictData, setConflictData] = useState<any>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
   
   const isInitialMount = useRef(true);
   const isRemoteUpdate = useRef(false);
+  const isSyncing = useRef(false);
   const lastCloudSync = useRef<string | null>(null); // Track last synced data string to avoid loops
   const lastLocalUpdate = useRef<number>(0); // Track last local update timestamp
-  const hasApiKey = !!process.env.API_KEY;
+  const hasApiKey = !!process.env.GEMINI_API_KEY;
 
   // Refs for stable access in event handlers
   const workersRef = useRef(workers);
@@ -225,77 +213,62 @@ const App: React.FC = () => {
 
   // Initial Load Logic
   useEffect(() => {
+    if (authLoading) return;
+
     const initialize = async () => {
       const savedData = localStorage.getItem(STORAGE_KEY);
-      let localId: string | undefined = undefined;
       let hasLocalData = false;
+      let localSynced = false;
 
       if (savedData) {
         try {
           const parsed = JSON.parse(savedData);
-          
-          // Always load metadata and preferences
-          if (parsed.projectMeta) {
-            setProjectMeta(parsed.projectMeta);
-            localId = parsed.projectMeta.id;
-          }
-          if (parsed.projectStatus) setProjectStatus(parsed.projectStatus);
-          if (parsed.languages) setLanguages(Array.from(new Set([...DEFAULT_LANGUAGES, ...parsed.languages])));
           if (parsed.isDarkMode !== undefined) setIsDarkMode(parsed.isDarkMode);
           if (parsed.currentUser) setCurrentUser(parsed.currentUser);
-
-          // Only load full state if project is NOT active (local draft)
-          // OR if we want to show something while cloud loads (but we'll overwrite it)
-          if (parsed.plan && parsed.plan.schedule) {
-            const migratedWorkers = (parsed.workers || []).map((w: Worker) => ({
-                ...w,
-                language: w.language || 'Telugu'
-            }));
-            
-            // If we have a local ID, we'll wait for cloud data to be the source of truth
-            // but we can keep the local data as a temporary placeholder if it matches
-            if (!localId) {
-                setWorkers(migratedWorkers);
-                setWorkload({ ...DEFAULT_WORKLOAD, ...parsed.workload });
-                if (parsed.leaves) setLeaves(parsed.leaves);
-                setPlan(parsed.plan);
-                setBatches(migrateBatches(parsed.batches));
-                if (parsed.recentPlan) setRecentPlan(parsed.recentPlan);
-                hasLocalData = true;
-            }
+          
+          // Load other data from local storage as fallback
+          if (parsed.workers) setWorkers(parsed.workers);
+          if (parsed.workload) setWorkload(parsed.workload);
+          if (parsed.leaves) setLeaves(parsed.leaves);
+          if (parsed.batches) setBatches(migrateBatches(parsed.batches));
+          if (parsed.projectMeta) {
+              setProjectMeta(parsed.projectMeta);
+              localSynced = !!parsed.projectMeta.synced;
           }
+          if (parsed.plan && parsed.plan.schedule && parsed.plan.schedule.length > 0) {
+            setPlan(parsed.plan);
+            setProjectStatus('active');
+            hasLocalData = true;
+          }
+          if (parsed.recentPlan) setRecentPlan(parsed.recentPlan);
+          
         } catch (e) {
           console.error("Failed to load saved data from local", e);
         }
       }
 
-      // If we have a local project ID, we MUST prioritize cloud data
-      if (localId) {
-          setLoading(true);
-      } else if (!hasLocalData) {
-          setLoading(true);
-      } else {
-          setCloudSaving(true);
+      if (!authUser) {
+          return;
       }
+
+      setLoading(true);
 
       try {
         let cloudData = null;
-        if (localId) {
-            try {
-                cloudData = await loadPlanFromCloud(localId);
-            } catch (e) {
-                console.warn("Could not find locally referenced project in cloud.");
-            }
-        }
-
-        if (!cloudData && !hasLocalData) {
-            const plans = await getSavedPlans();
-            if (plans && plans.length > 0) {
-                cloudData = await loadPlanFromCloud(plans[0].id);
-            }
+        const plans = await getSavedPlans();
+        if (plans && plans.length > 0) {
+            cloudData = await loadPlanFromCloud(plans[0].id);
         }
 
         if (cloudData) {
+             if (hasLocalData && !localSynced) {
+                 // Conflict: Local data has unsaved changes, but cloud has data.
+                 // Show conflict modal instead of overwriting.
+                 setConflictData(cloudData);
+                 setLoading(false);
+                 return; // Stop initialization, wait for user resolution
+             }
+             
              // Migration for Cloud Data
              const migratedWorkers = (cloudData.workers || []).map((w: Worker) => ({ ...w, language: w.language || 'Telugu' }));
              const migratedBatches = (cloudData.batches || []).map((b: Batch) => ({ ...b, language: b.language || 'Telugu' }));
@@ -313,13 +286,17 @@ const App: React.FC = () => {
                  setLanguages(Array.from(new Set([...DEFAULT_LANGUAGES, ...cloudData.languages])));
              }
 
-             if(!hasLocalData) setCurrentView('daily'); 
+             setCurrentView('daily'); 
         } else if (!hasLocalData) {
+             // Only call handleManualStart if we don't have local data
              handleManualStart();
         }
 
       } catch (e) {
-        if (!hasLocalData) handleManualStart();
+        console.error("Error during initialization:", e);
+        if (!hasLocalData) {
+            handleManualStart();
+        }
       } finally {
         setLoading(false);
         setCloudSaving(false);
@@ -327,7 +304,7 @@ const App: React.FC = () => {
     };
 
     initialize();
-  }, []);
+  }, [authUser, authLoading]);
 
   // Real-time Cloud Subscription
   useEffect(() => {
@@ -352,6 +329,7 @@ const App: React.FC = () => {
 
                   console.log("Received remote update");
                   isRemoteUpdate.current = true;
+                  isSyncing.current = true;
                   lastCloudSync.current = dataString;
                   
                   if (data.workers && Array.isArray(data.workers)) {
@@ -383,6 +361,10 @@ const App: React.FC = () => {
                           return JSON.stringify(prev) !== JSON.stringify(combined) ? combined : prev;
                       });
                   }
+
+                  setTimeout(() => {
+                      isSyncing.current = false;
+                  }, 500);
               } catch (err) {
                   console.error("Error processing remote update:", err);
               }
@@ -423,6 +405,12 @@ const App: React.FC = () => {
         }
         
         localStorage.setItem(STORAGE_KEY, dataToSave);
+        
+        // Rolling backup for active plans
+        if (projectStatus === 'active' && plan && plan.schedule && plan.schedule.length > 0) {
+            localStorage.setItem(STORAGE_KEY + '_backup', dataToSave);
+        }
+        
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
       } catch (e) {
@@ -434,6 +422,20 @@ const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, [workers, workload, leaves, plan, recentPlan, projectMeta, projectStatus, batches, languages, isDarkMode, currentUser]);
 
+  // Continuous Auto-Save to Cloud
+  useEffect(() => {
+    if (isInitialMount.current) {
+      return;
+    }
+    
+    // Debounce for 30 seconds
+    const timer = setTimeout(() => {
+        autoSaveToCloud();
+    }, 30000);
+
+    return () => clearTimeout(timer);
+  }, [workers, workload, batches, plan, languages]);
+
   // Track local updates to prevent remote overwrites
   useEffect(() => {
     if (isRemoteUpdate.current) {
@@ -443,33 +445,16 @@ const App: React.FC = () => {
     lastLocalUpdate.current = Date.now();
   }, [workers, batches, languages, workload]);
 
-  // Cloud Auto-Save Debounced
-  useEffect(() => {
-    if (!plan || projectStatus !== 'active' || loading) return;
-
-    if (isRemoteUpdate.current) {
-        // This change came from the server, so don't echo it back
-        isRemoteUpdate.current = false;
-        return;
-    }
-
-    const timer = setTimeout(() => {
-        autoSaveToCloud(); 
-    }, 3000);
-
-    return () => clearTimeout(timer);
-  }, [plan, batches, projectStatus, workers, languages]);
-
   // Presence Tracking
   useEffect(() => {
-    if (!projectMeta?.id) return;
+    if (!projectMeta?.id || !authUser) return;
     
     // Initial update
-    updatePresence(projectMeta.id, userId, USER_EMAIL, currentUser.role, currentUser.language);
+    updatePresence(projectMeta.id, userId, authUser.email || USER_EMAIL, currentUser.role, currentUser.language);
     
     // Periodic update every 2 minutes
     const interval = setInterval(() => {
-        updatePresence(projectMeta.id, userId, USER_EMAIL, currentUser.role, currentUser.language);
+        updatePresence(projectMeta.id, userId, authUser.email || USER_EMAIL, currentUser.role, currentUser.language);
     }, 120000);
     
     const unsubPresence = subscribeToPresence(projectMeta.id, setPresence);
@@ -478,7 +463,7 @@ const App: React.FC = () => {
         clearInterval(interval);
         unsubPresence();
     };
-  }, [projectMeta?.id, userId, currentUser]);
+  }, [projectMeta?.id, userId, currentUser, authUser]);
 
   // Filter for Sidebar
   const activeBatchesProgress = useMemo(() => {
@@ -490,11 +475,11 @@ const App: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const generatedPlan = await generateProductionPlan(workers, workload, leaves, process.env.API_KEY);
+      const generatedPlan = await generateProductionPlan(workers, workload, leaves, process.env.GEMINI_API_KEY);
       setPlan(generatedPlan);
       setProjectStatus('planning'); 
       setRecentPlan(null); 
-      setCurrentView('track');
+      setCurrentView('daily');
       
       setProjectMeta(prev => ({
         name: workload.projectName,
@@ -527,10 +512,11 @@ const App: React.FC = () => {
   };
 
   const autoSaveToCloud = async (overrides: { plan?: ProductionPlan | null, batches?: Batch[] } = {}) => {
+    if (isSyncing.current) return;
     const planToSave = overrides.plan !== undefined ? overrides.plan : plan;
     const batchesToSave = overrides.batches !== undefined ? overrides.batches : globalBatchesProgress;
 
-    if (!planToSave || projectStatus !== 'active' || !projectMeta?.id) return;
+    if (!planToSave || !projectMeta?.id) return;
 
     setCloudSaving(true);
     try {
@@ -561,14 +547,15 @@ const App: React.FC = () => {
     }
   };
 
-  const handleSaveBatch = (batchData: Omit<Batch, 'id' | 'status' | 'createdAt'>) => {
+  const handleSaveBatch = async (batchData: Omit<Batch, 'id' | 'status' | 'createdAt'>) => {
+      let finalBatches: Batch[];
       if (editingBatch) {
         // Edit Mode
-        const updatedBatches = batches.map(b => b.id === editingBatch.id ? { 
+        finalBatches = batches.map(b => b.id === editingBatch.id ? { 
             ...b, 
             ...batchData 
         } : b);
-        setBatches(updatedBatches);
+        setBatches(finalBatches);
         lastLocalUpdate.current = Date.now();
       } else {
         // Create Mode
@@ -579,12 +566,16 @@ const App: React.FC = () => {
             createdAt: new Date().toISOString(),
             language: currentUser.language // Assign current view language
         };
-        const newBatches = [...batches, newBatch];
-        setBatches(newBatches);
+        finalBatches = [...batches, newBatch];
+        setBatches(finalBatches);
         lastLocalUpdate.current = Date.now();
       }
       setShowBatchModal(false);
       setEditingBatch(null);
+
+      if (!isSyncing.current) {
+          await autoSaveToCloud({ batches: finalBatches });
+      }
   };
   
   const handleEditBatch = (batch: Batch) => {
@@ -592,11 +583,12 @@ const App: React.FC = () => {
       setShowBatchModal(true);
   };
 
-  const handleDeleteBatch = (batchId: string) => {
+  const handleDeleteBatch = async (batchId: string) => {
       const newBatches = (batches || []).filter(b => b.id !== batchId);
       setBatches(newBatches);
       lastLocalUpdate.current = Date.now();
       
+      let newPlan = plan;
       if (plan) {
           const newSchedule = plan.schedule.map(day => ({
               ...day,
@@ -606,8 +598,12 @@ const App: React.FC = () => {
                     : task
               )
           }));
-          const newPlan = { ...plan, schedule: newSchedule };
+          newPlan = { ...plan, schedule: newSchedule };
           setPlan(newPlan);
+      }
+
+      if (!isSyncing.current) {
+          await autoSaveToCloud({ batches: newBatches, plan: newPlan });
       }
   };
 
@@ -664,11 +660,11 @@ const App: React.FC = () => {
                           return dayIndex === day.day;
                       });
                       
-                      if (a.isOnLeave !== !!isOnLeave) {
+                      if (a.isOnLeave !== !!isOnLeave || a.batchId === 'LEAVE') {
                           return {
                               ...a,
                               isOnLeave: !!isOnLeave,
-                              batchId: isOnLeave ? undefined : a.batchId,
+                              batchId: isOnLeave ? undefined : (a.batchId === 'LEAVE' ? undefined : a.batchId),
                               generations: isOnLeave ? 0 : a.generations,
                               edits: isOnLeave ? 0 : a.edits
                           };
@@ -683,7 +679,7 @@ const App: React.FC = () => {
       }
       
       // Trigger cloud save if we have a plan ID
-      if (projectMeta?.id && currentPlanToSave) {
+      if (projectMeta?.id && currentPlanToSave && !isSyncing.current) {
           setCloudSaving(true);
           try {
               // Update lastCloudSync to prevent echo
@@ -733,7 +729,7 @@ const App: React.FC = () => {
       lastCloudSync.current = dataString;
       
       // If granular day update is requested, save it immediately to prevent multi-user data loss
-      if (saveToCloud && projectMeta?.id && dayToSave !== undefined) {
+      if (saveToCloud && projectMeta?.id && dayToSave !== undefined && !isSyncing.current) {
           const dayPlan = newPlan.schedule.find(d => d.day === dayToSave);
           if (dayPlan) {
               if (assignmentId) {
@@ -753,7 +749,7 @@ const App: React.FC = () => {
   };
 
   const handleSavePlan = async (name: string, notes: string) => {
-      if (!plan) return;
+      if (!plan || isSyncing.current) return;
       
       setLoading(true);
       try {
@@ -772,6 +768,87 @@ const App: React.FC = () => {
           setError("Failed to save plan to cloud. Please try again.");
       } finally {
           setLoading(false);
+      }
+  };
+
+  const showToast = (msg: string) => {
+      setToastMessage(msg);
+      setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleExportData = () => {
+      const dataToExport = {
+          workers,
+          workload,
+          batches,
+          plan,
+          leaves,
+          languages,
+          projectMeta,
+          projectStatus,
+          exportDate: new Date().toISOString()
+      };
+      
+      const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wedo_planner_backup_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+  };
+
+  const handleImportData = async (data: any) => {
+      try {
+          if (data.workers) setWorkers(data.workers);
+          if (data.workload) setWorkload(data.workload);
+          if (data.batches) setBatches(migrateBatches(data.batches));
+          if (data.plan) setPlan(data.plan);
+          if (data.leaves) setLeaves(data.leaves);
+          if (data.languages) setLanguages(data.languages);
+          if (data.projectMeta) setProjectMeta(data.projectMeta);
+          if (data.projectStatus) setProjectStatus(data.projectStatus);
+          
+          // If there's an active project, we should probably sync it to the cloud immediately
+          // to ensure the cloud matches the imported local state.
+          if (data.projectStatus === 'active' && data.projectMeta?.id && data.plan) {
+              setLoading(true);
+              await savePlanToCloud(
+                  data.projectMeta.name, 
+                  data.projectMeta.notes || '', 
+                  data.workers || workers, 
+                  data.workload || workload, 
+                  data.plan, 
+                  data.batches || batches, 
+                  data.languages || languages, 
+                  data.projectMeta.id
+              );
+              setLoading(false);
+          }
+          
+          showToast("Data imported successfully!");
+      } catch (e) {
+          console.error("Error importing data:", e);
+          showToast("Failed to import data. The file might be corrupted.");
+          setLoading(false);
+      }
+  };
+
+  const handleRestoreLocalBackup = () => {
+      const backupData = localStorage.getItem(STORAGE_KEY + '_backup');
+      if (!backupData) {
+          showToast("No local backup found.");
+          return;
+      }
+      
+      try {
+          const parsed = JSON.parse(backupData);
+          handleImportData(parsed);
+      } catch (e) {
+          console.error("Failed to parse local backup", e);
+          showToast("Local backup is corrupted.");
       }
   };
 
@@ -827,9 +904,12 @@ const App: React.FC = () => {
     handleWorkerUpdate(updatedWorkers, basePlan);
   };
 
-  const handleLanguageChange = (lang: string) => {
+  const handleLanguageChange = async (lang: string) => {
       setCurrentUser(prev => ({ ...prev, language: lang }));
       if (currentView === 'admin') setCurrentView('daily'); 
+      if (!isSyncing.current) {
+          await autoSaveToCloud();
+      }
   };
 
   const toggleAdminMode = () => {
@@ -868,6 +948,61 @@ const App: React.FC = () => {
     );
   }
 
+  if (conflictData) {
+      return (
+          <div className={isDarkMode ? "dark" : ""}>
+              <div className="h-screen w-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 p-4">
+                  <div className="max-w-lg w-full p-8 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800">
+                      <div className="flex items-center gap-3 mb-6 text-amber-600 dark:text-amber-500">
+                          <RefreshCw className="w-8 h-8" />
+                          <h2 className="text-2xl font-bold">Sync Conflict Detected</h2>
+                      </div>
+                      <p className="text-slate-600 dark:text-slate-300 mb-6 leading-relaxed">
+                          We found a saved plan in the cloud, but you also have unsaved local data on this device. 
+                          <br/><br/>
+                          <strong>If you are on the published site</strong> and want to keep your real data, choose <strong>"Keep Local Data"</strong>.
+                      </p>
+                      <div className="flex flex-col gap-4">
+                          <button 
+                              onClick={() => {
+                                  // Keep local data, force sync to cloud
+                                  setProjectMeta(prev => ({ ...prev, synced: false }));
+                                  setConflictData(null);
+                                  setLoading(false);
+                              }}
+                              className="w-full py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold transition-all shadow-md"
+                          >
+                              Keep Local Data (Overwrite Cloud)
+                          </button>
+                          <button 
+                              onClick={() => {
+                                  // Load cloud data
+                                  const migratedWorkers = (conflictData.workers || []).map((w: Worker) => ({ ...w, language: w.language || 'Telugu' }));
+                                  setWorkers(migratedWorkers);
+                                  setWorkload(conflictData.workload);
+                                  setPlan(conflictData.plan);
+                                  if (conflictData.batches) setBatches(migrateBatches(conflictData.batches));
+                                  setProjectMeta(conflictData.projectMeta);
+                                  setProjectStatus('active'); 
+                                  setRecentPlan(null);
+                                  if (conflictData.languages && Array.isArray(conflictData.languages)) {
+                                      setLanguages(Array.from(new Set([...DEFAULT_LANGUAGES, ...conflictData.languages])));
+                                  }
+                                  setCurrentView('daily');
+                                  setConflictData(null);
+                                  setLoading(false);
+                              }}
+                              className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-bold transition-all"
+                          >
+                              Load Cloud Data (Overwrite Local)
+                          </button>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      );
+  }
+
   return (
     <div className={isDarkMode ? "dark" : ""}>
     <div className="h-screen w-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -893,12 +1028,22 @@ const App: React.FC = () => {
         languages={languages}
         setLanguages={setLanguages}
         currentLanguage={currentUser.language}
+        onExportData={handleExportData}
+        onImportData={handleImportData}
+        onRestoreLocalBackup={handleRestoreLocalBackup}
+        onError={showToast}
       />
       
       {loading && (
         <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white/90 backdrop-blur-sm dark:bg-slate-900/90">
           <Loader2 size={64} className="text-[#F26C21] animate-spin mb-6" />
           <h3 className="text-2xl font-bold text-slate-800 dark:text-white">Loading Team Data...</h3>
+        </div>
+      )}
+
+      {toastMessage && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] bg-slate-800 dark:bg-slate-200 text-white dark:text-slate-900 px-6 py-3 rounded-full shadow-lg font-medium animate-in fade-in slide-in-from-bottom-4">
+          {toastMessage}
         </div>
       )}
 
@@ -934,6 +1079,18 @@ const App: React.FC = () => {
                     </div>
 
                     <button 
+                        onClick={async () => {
+                            setCloudSaving(true);
+                            await autoSaveToCloud();
+                            setCloudSaving(false);
+                        }}
+                        disabled={cloudSaving}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
+                        title="Sync to Cloud"
+                    >
+                        {cloudSaving ? <Loader2 size={14} className="animate-spin" /> : "Sync"}
+                    </button>
+                    <button 
                         onClick={() => setShowSettingsModal(true)}
                         className="p-1.5 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg transition-colors"
                         title="Settings"
@@ -946,30 +1103,30 @@ const App: React.FC = () => {
 
             {/* Navigation Tabs */}
             {currentView !== 'admin' && (
-                <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-lg ml-2 md:ml-6">
+                <div className="flex bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-full ml-2 md:ml-6 border border-slate-200/50 dark:border-slate-700/50 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 <button 
                     onClick={() => setCurrentView('daily')}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs md:text-sm font-bold transition-all ${currentView === 'daily' ? 'bg-white dark:bg-slate-700 text-[#F26C21] dark:text-[#F26C21] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'daily' ? 'bg-white dark:bg-slate-700 text-[#F26C21] dark:text-[#F26C21] shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
                 >
-                    <ListChecks size={14} className="md:w-4 md:h-4" /> Daily
+                    <ListChecks size={14} /> Daily
                 </button>
                 <button 
                     onClick={() => setCurrentView('assign')}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs md:text-sm font-bold transition-all ${currentView === 'assign' ? 'bg-white dark:bg-slate-700 text-[#F26C21] dark:text-[#F26C21] shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'assign' ? 'bg-white dark:bg-slate-700 text-[#F26C21] dark:text-[#F26C21] shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
                 >
-                    <UserCheck size={14} className="md:w-4 md:h-4" /> Assign
-                </button>
-                <button 
-                    onClick={() => setCurrentView('track')}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs md:text-sm font-bold transition-all ${currentView === 'track' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
-                >
-                    <LayoutDashboard size={14} className="md:w-4 md:h-4" /> Track
+                    <UserCheck size={14} /> Assign
                 </button>
                 <button 
                     onClick={() => setCurrentView('leaves')}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs md:text-sm font-bold transition-all ${currentView === 'leaves' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'leaves' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
                 >
-                    <Calendar size={14} className="md:w-4 md:h-4" /> Leaves
+                    <Calendar size={14} /> Leaves
+                </button>
+                <button 
+                    onClick={() => setCurrentView('ai-manager')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'ai-manager' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
+                >
+                    <Brain size={14} /> AI Insights
                 </button>
                 </div>
             )}
@@ -980,9 +1137,9 @@ const App: React.FC = () => {
              {projectStatus === 'active' && projectMeta?.id && (
                 <button 
                     onClick={() => {
-                        const url = `${window.location.origin}${window.location.pathname}?mode=dashboard&id=${projectMeta.id}`;
+                        const url = `${window.location.origin}/editors-dashboard.html?id=${projectMeta.id}`;
                         navigator.clipboard.writeText(url);
-                        alert("Dashboard link copied to clipboard!");
+                        showToast("Dashboard link copied to clipboard!");
                     }}
                     className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800 rounded-lg text-xs font-bold hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all"
                     title="Copy Live Dashboard Link"
@@ -1048,6 +1205,7 @@ const App: React.FC = () => {
 
         {/* VIEW: LEAVES */}
         {currentView === 'leaves' && (
+          <main className="flex-1 w-full h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 p-4 lg:p-6">
             <LeaveManagement 
                 workers={workers} 
                 setWorkers={setWorkers} 
@@ -1055,47 +1213,31 @@ const App: React.FC = () => {
                 currentLanguage={currentUser.language}
                 onUpdate={handleWorkerUpdate}
             />
+          </main>
         )}
 
-        {/* VIEW: TRACK */}
-        {currentView === 'track' && (
-          <main className="flex-1 h-full overflow-hidden bg-slate-50 dark:bg-slate-950 relative p-4 lg:p-6">
-               {error && (
-                  <div className="absolute top-6 left-6 right-6 z-50 bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl flex items-center justify-between shadow-lg">
-                    <span className="flex items-center gap-2 font-medium"><XCircle size={20} /> {error}</span>
-                    <button onClick={() => setError(null)}><X size={18} /></button>
-                  </div>
-               )}
-
-               {plan ? (
-                 <PlanAnalyze 
-                    plan={plan} 
-                    workload={workload}
-                    workers={filteredWorkers} // Pass Filtered Workers
-                    leaves={leaves}
-                    batches={filteredBatches} // Pass Filtered Batches
-                    projectStatus={projectStatus}
-                    onUpdatePlan={handlePlanUpdate}
-                    onToggleLeave={toggleLeave}
-                    currentUser={currentUser}
-                    onSavePlan={() => setShowSaveModal(true)}
-                  />
-               ) : (
-                 <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-white rounded-3xl border border-slate-200 border-dashed">
-                    <div className="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mb-6">
-                      <LayoutDashboard size={40} className="text-slate-300" />
-                    </div>
-                    <h3 className="text-xl font-black text-slate-700">Ready to Plan</h3>
-                    <p className="text-slate-400 mt-2 max-w-xs text-center text-sm">Configure your {currentUser.language} team on the left.</p>
-                    <button 
-                        onClick={handleManualStart}
-                        className="mt-6 px-6 py-2 bg-slate-800 text-white rounded-lg font-bold hover:bg-slate-700 transition-all flex items-center gap-2 shadow-lg"
-                    >
-                        <PenTool size={16} /> Start Planning
-                    </button>
-                 </div>
-               )}
-            </main>
+        {/* VIEW: AI MANAGER */}
+        {currentView === 'ai-manager' && (
+          <main className="flex-1 h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 p-4 lg:p-6">
+            {plan ? (
+              <AIManager 
+                plan={plan}
+                workers={filteredWorkers}
+                batches={filteredBatches}
+                workload={workload}
+                currentLanguage={currentUser.language}
+                apiKey={process.env.GEMINI_API_KEY || ''}
+              />
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 border-dashed">
+                <div className="w-24 h-24 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mb-6">
+                  <Brain size={40} className="text-slate-300 dark:text-slate-600" />
+                </div>
+                <h3 className="text-xl font-black text-slate-700 dark:text-slate-300">No Plan Available</h3>
+                <p className="text-slate-400 dark:text-slate-500 mt-2 max-w-xs text-center text-sm">Generate or load a plan first to view AI insights.</p>
+              </div>
+            )}
+          </main>
         )}
 
         {/* VIEW: DAILY UPDATE */}
@@ -1123,7 +1265,6 @@ const App: React.FC = () => {
                    <h2 className="text-2xl font-black text-slate-800 dark:text-slate-200 mb-2">No Active Schedule</h2>
                    <p className="text-slate-500 dark:text-slate-400 max-w-md mb-8 text-center">Start a {currentUser.language} project to track daily progress.</p>
                    <div className="flex gap-4">
-                     <button onClick={() => setCurrentView('track')} className="px-6 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg font-bold hover:bg-slate-200 dark:hover:bg-slate-700">Go Track</button>
                      <button onClick={handleManualStart} className="px-6 py-2 bg-[#F26C21] text-white rounded-lg font-bold hover:bg-[#d95a10]">Manual Start</button>
                    </div>
                </div>

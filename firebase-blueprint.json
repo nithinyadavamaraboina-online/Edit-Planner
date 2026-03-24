@@ -1,0 +1,21 @@
+{
+  "entities": {
+    "ProductionPlan": {
+      "title": "ProductionPlan",
+      "description": "A production plan for a batch of work.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The unique identifier for the plan." },
+        "name": { "type": "string", "description": "The name of the plan." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "The date the plan was created." }
+      },
+      "required": ["id", "name", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/production_plans/{planId}": {
+      "schema": { "$ref": "ProductionPlan" },
+      "description": "Production plans collection."
+    }
+  }
+}

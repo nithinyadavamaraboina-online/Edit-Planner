@@ -20,6 +20,8 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
   const [endDate, setEndDate] = useState('');
   const [dummyRows, setDummyRows] = useState('');
   const [normalRows, setNormalRows] = useState('');
+  const [startRow, setStartRow] = useState(2);
+  const [endRow, setEndRow] = useState(0);
 
   useEffect(() => {
     if (isOpen) {
@@ -32,6 +34,8 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
             setEndDate(initialData.endDate || '');
             setDummyRows(initialData.dummyRows || '');
             setNormalRows(initialData.normalRows || '');
+            setStartRow(initialData.startRow || 2);
+            setEndRow(initialData.endRow || 0);
         } else {
             setClientName('');
             setBatchName('');
@@ -41,9 +45,36 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
             setEndDate('');
             setDummyRows('');
             setNormalRows('');
+            setStartRow(2);
+            setEndRow(0);
         }
     }
   }, [isOpen, initialData]);
+
+  const sanitizeRowInput = (inputStr: string, start: number, end: number) => {
+    if (!inputStr) return '';
+    const numbers = inputStr
+      .split(/[\s,]+/)
+      .map(s => parseInt(s.trim(), 10))
+      .filter(n => !isNaN(n) && n >= start && n <= end);
+    const uniqueNumbers = Array.from(new Set(numbers)).sort((a, b) => a - b);
+    return uniqueNumbers.join(' ');
+  };
+
+  // Auto-calculate AI and Normal videos when row inputs change
+  useEffect(() => {
+    if (endRow >= startRow) {
+      const totalRows = (endRow - startRow) + 1;
+      const normalRowsCount = normalRows.split(/\s+/).filter(r => !isNaN(parseInt(r)) && r.trim() !== '').length;
+      const dummyRowsCount = dummyRows.split(/\s+/).filter(r => !isNaN(parseInt(r)) && r.trim() !== '').length;
+      
+      const calculatedNormal = normalRowsCount;
+      const calculatedAi = Math.max(0, totalRows - calculatedNormal - dummyRowsCount);
+      
+      setNormalVideos(calculatedNormal);
+      setAiVideos(calculatedAi);
+    }
+  }, [startRow, endRow, normalRows, dummyRows]);
 
   if (!isOpen) return null;
 
@@ -59,6 +90,8 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
       endDate,
       dummyRows,
       normalRows,
+      startRow,
+      endRow,
       language: initialData?.language || currentLanguage // Preserve lang if editing
     });
     
@@ -130,6 +163,29 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
 
           <div className="grid grid-cols-2 gap-4">
              <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">Start Row</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={startRow}
+                  onChange={(e) => setStartRow(parseInt(e.target.value) || 0)}
+                  className="w-full p-2.5 border border-slate-200 rounded-lg text-lg font-black text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+             </div>
+             <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">End Row</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={endRow}
+                  onChange={(e) => setEndRow(parseInt(e.target.value) || 0)}
+                  className="w-full p-2.5 border border-slate-200 rounded-lg text-lg font-black text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+             <div>
                 <label className="block text-xs font-bold text-slate-500 mb-1">AI Videos</label>
                 <input
                   type="number"
@@ -157,6 +213,7 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
               type="text"
               value={normalRows}
               onChange={(e) => setNormalRows(e.target.value)}
+              onBlur={() => setNormalRows(sanitizeRowInput(normalRows, startRow, endRow))}
               className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-300"
               placeholder="1 2 3 (Normal Videos)"
             />
@@ -169,6 +226,7 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
               type="text"
               value={dummyRows}
               onChange={(e) => setDummyRows(e.target.value)}
+              onBlur={() => setDummyRows(sanitizeRowInput(dummyRows, startRow, endRow))}
               className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-300"
               placeholder="5 12 30 (Rows to skip)"
             />

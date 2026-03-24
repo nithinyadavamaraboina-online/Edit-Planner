@@ -6,10 +6,7 @@ import { Shield, LayoutGrid, Clock, CheckCircle, Zap, Globe, Trophy, ArrowLeft }
 interface AdminPageProps {
   workers: Worker[];
   setWorkers: React.Dispatch<React.SetStateAction<Worker[]>>;
-  languages: string[];
-  setLanguages: React.Dispatch<React.SetStateAction<string[]>>;
   onBack: () => void;
-  currentLanguage: string;
   batches: Batch[];
   plan: ProductionPlan | null;
   projectMeta: { id?: string; name: string; notes: string } | null;
@@ -30,8 +27,36 @@ const AdminPage: React.FC<AdminPageProps> = ({
     alert("Dashboard link copied to clipboard!");
   };
   
+  const editorVelocities = useMemo(() => {
+    if (!plan || !plan.schedule) return {};
+    const velocities: Record<string, { totalUnits: number, daysWorked: number }> = {};
+    
+    plan.schedule.forEach(day => {
+        day.assignments.forEach(assignment => {
+            const workerId = assignment.workerId;
+            if (!velocities[workerId]) velocities[workerId] = { totalUnits: 0, daysWorked: 0 };
+            
+            const units = assignment.generations + assignment.edits;
+            if (units > 0) {
+                velocities[workerId].totalUnits += units;
+                velocities[workerId].daysWorked += 1;
+            }
+        });
+    });
+    
+    const avgVelocities: Record<string, number> = {};
+    Object.keys(velocities).forEach(workerId => {
+        avgVelocities[workerId] = velocities[workerId].daysWorked > 0 
+            ? velocities[workerId].totalUnits / velocities[workerId].daysWorked 
+            : 0;
+    });
+    
+    return avgVelocities;
+  }, [plan]);
+
   const getBatchAnalysis = (batch: Batch) => {
     const { 
+        id,
         aiVideos, normalVideos, 
         completedGen, completedEdit, 
         startDate, endDate 
@@ -52,9 +77,25 @@ const AdminPage: React.FC<AdminPageProps> = ({
     end.setHours(0,0,0,0);
 
     const msPerDay = 1000 * 60 * 60 * 24;
-    const totalDuration = Math.max(1, (end.getTime() - start.getTime()) / msPerDay);
     const daysPassed = Math.max(0, (today.getTime() - start.getTime()) / msPerDay);
-    const daysRemaining = Math.ceil((end.getTime() - today.getTime()) / msPerDay);
+    
+    let predictedDate = null;
+
+    if (progress < 100 && plan && plan.schedule) {
+        const lastDay = plan.schedule[plan.schedule.length - 1];
+        const activeAssignments = lastDay.assignments.filter(a => a.batchId === id);
+        
+        const combinedActiveVelocity = activeAssignments.reduce((sum, a) => sum + (editorVelocities[a.workerId] || 0), 0);
+        
+        const velocity = combinedActiveVelocity > 0 ? combinedActiveVelocity : (daysPassed > 0 ? (completedUnits / daysPassed) : 0);
+        
+        if (velocity > 0) {
+            const predictedDaysNeeded = remainingUnits / velocity;
+            const pDate = new Date(today);
+            pDate.setDate(today.getDate() + Math.ceil(predictedDaysNeeded));
+            predictedDate = pDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+    }
 
     let status: 'ontrack' | 'risk' | 'delayed' | 'completed' | 'due_today' = 'ontrack';
     let predictionData = 0;
@@ -64,17 +105,11 @@ const AdminPage: React.FC<AdminPageProps> = ({
     } else if (today > end) {
         status = 'delayed';
         predictionData = Math.ceil((today.getTime() - end.getTime()) / msPerDay);
-    } else if (daysRemaining === 0) {
-        status = 'due_today';
-        if (remainingUnits > 0) {
-             if (remainingUnits > 5) { 
-                 predictionData = 1;
-             }
-        }
     } else {
         const actualVelocity = daysPassed > 0 ? (completedUnits / daysPassed) : 0;
         
         if (actualVelocity > 0) {
+            const daysRemaining = Math.ceil((end.getTime() - today.getTime()) / msPerDay);
             const daysNeeded = remainingUnits / actualVelocity;
             const buffer = daysRemaining - daysNeeded;
             
@@ -87,17 +122,10 @@ const AdminPage: React.FC<AdminPageProps> = ({
                 status = 'ontrack';
                 predictionData = buffer;
             }
-
-            if (remainingUnits <= 10 && daysRemaining >= 1 && buffer > -1) {
-                status = 'ontrack';
-            }
-
-        } else {
-            if (daysPassed / totalDuration > 0.25) status = 'risk';
         }
     }
 
-    return { status, progress, remainingUnits, predictionData, endDate };
+    return { status, progress, remainingUnits, predictionData, endDate, predictedDate };
   };
 
   const batchesByLang = useMemo(() => {
@@ -174,17 +202,7 @@ const AdminPage: React.FC<AdminPageProps> = ({
       <div className="w-full space-y-8 max-w-[1920px] mx-auto">
         
         {/* Header Removed */}
-        {projectMeta?.id && (
-            <div className="flex justify-end">
-                <button 
-                    onClick={handleShareDashboard}
-                    className="flex items-center gap-2 px-4 py-2 bg-[#F26C21] text-white font-bold rounded-xl shadow-lg hover:bg-orange-600 transition-all"
-                >
-                    <Globe size={18} /> Share Live Dashboard
-                </button>
-            </div>
-        )}
-
+        
         {Object.keys(batchesByLang).length === 0 ? (
             <div className="text-center py-32">
                 <LayoutGrid className="mx-auto mb-4 text-slate-300 dark:text-slate-700" size={64} />
@@ -192,7 +210,7 @@ const AdminPage: React.FC<AdminPageProps> = ({
                 <p className="text-slate-400 dark:text-slate-500 mt-2">Active projects will appear here.</p>
             </div>
         ) : (
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                 {Object.entries(batchesByLang).map(([lang, group]) => {
                     const { active, completed } = group as { active: Batch[], completed: Batch[] };
                     const theme = getLangTheme(lang);
@@ -205,52 +223,45 @@ const AdminPage: React.FC<AdminPageProps> = ({
                     if (!hasActive && !hasCompleted) return null;
 
                     return (
-                        <section key={lang} className={`flex flex-col gap-8 p-8 rounded-[2.5rem] border shadow-sm ${theme.bg} ${theme.border} transition-all duration-300 animate-in fade-in slide-in-from-bottom-2`}>
+                        <section key={lang} className={`flex flex-col gap-4 p-4 rounded-[2rem] border shadow-sm ${theme.bg} ${theme.border} transition-all duration-300 animate-in fade-in slide-in-from-bottom-2`}>
                             {/* Language Header */}
-                            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-6">
-                                <div className="flex items-center gap-4">
-                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-2xl shadow-sm ${theme.icon}`}>
-                                        {lang.charAt(0)}
-                                    </div>
-                                    <div>
-                                        <h2 className={`text-3xl font-black leading-none ${theme.title}`}>{lang}</h2>
-                                        <div className="flex gap-4 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mt-1.5">
-                                            {hasActive && <span>{active.length} Active</span>}
-                                            {hasCompleted && <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><CheckCircle size={12} /> {completed.length} Completed</span>}
-                                        </div>
-                                    </div>
+                            <div className="border-b border-slate-100 dark:border-slate-800 pb-6 text-center">
+                                <h2 className={`text-3xl font-black leading-none ${theme.title}`}>{lang}</h2>
+                                <div className="flex justify-center gap-4 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mt-1.5">
+                                    {hasActive && <span>{active.length} Active</span>}
+                                    {hasCompleted && <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><CheckCircle size={12} /> {completed.length} Completed</span>}
                                 </div>
                             </div>
                             
                             {/* Active Projects Grid */}
                             {hasActive && (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-3 gap-4">
+                                <div className={`grid ${active.length === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-3'} gap-4`}>
                                     {active.map(batch => {
-                                        const { status, progress, remainingUnits, predictionData, endDate } = getBatchAnalysis(batch);
+                                        const { status, progress, remainingUnits, predictionData, endDate, predictedDate } = getBatchAnalysis(batch);
                                         const statusColor = getStatusColor(status);
                                         const isCompleted = status === 'completed' || progress >= 100;
 
                                         return (
-                                            <div key={batch.id} className={`${isCompleted ? 'bg-emerald-50/50 border-emerald-200' : 'bg-slate-50 border-slate-200'} rounded-xl p-5 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group relative border shadow-sm flex flex-col justify-between h-full`}>
+                                            <div key={batch.id} className={`${isCompleted ? 'bg-emerald-50/50 border-emerald-200' : 'bg-slate-50 border-slate-200'} rounded-xl p-3 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group relative border shadow-sm flex flex-col justify-between h-full`}>
                                                 
                                                 <div>
                                                     {/* Header */}
-                                                    <div className="flex justify-between items-start mb-4">
+                                                    <div className="flex justify-between items-start mb-2">
                                                         <div className="min-w-0 pr-2">
-                                                            <div className={`text-[10px] font-bold uppercase tracking-wide truncate mb-1 ${isCompleted ? 'text-emerald-500' : 'text-slate-400'}`}>{batch.clientName}</div>
-                                                            <h3 className={`text-lg font-black leading-tight truncate ${isCompleted ? 'text-emerald-900' : 'text-slate-800'}`} title={batch.batchName}>
+                                                            <div className={`text-[9px] font-bold uppercase tracking-wide truncate mb-0.5 ${isCompleted ? 'text-emerald-500' : 'text-slate-400'}`}>{batch.clientName}</div>
+                                                            <h3 className={`text-sm font-black leading-tight truncate ${isCompleted ? 'text-emerald-900' : 'text-slate-800'}`} title={batch.batchName}>
                                                                 {batch.batchName}
                                                             </h3>
                                                         </div>
                                                     </div>
                                                     
                                                     {/* Progress Bar */}
-                                                    <div className="mb-5">
-                                                        <div className="flex justify-between items-end mb-2">
-                                                            <span className={`text-[10px] font-bold uppercase ${isCompleted ? 'text-emerald-500' : 'text-slate-400'}`}>Progress</span>
-                                                            <span className={`text-2xl font-black ${status === 'completed' ? 'text-emerald-600' : 'text-slate-700'}`}>{progress}%</span>
+                                                    <div className="mb-3">
+                                                        <div className="flex justify-between items-end mb-1">
+                                                            <span className={`text-[9px] font-bold uppercase ${isCompleted ? 'text-emerald-500' : 'text-slate-400'}`}>Progress</span>
+                                                            <span className={`text-lg font-black ${status === 'completed' ? 'text-emerald-600' : 'text-slate-700'}`}>{progress}%</span>
                                                         </div>
-                                                        <div className={`w-full h-2.5 rounded-full overflow-hidden mb-3 ${isCompleted ? 'bg-emerald-200' : 'bg-slate-200'}`}>
+                                                        <div className={`w-full h-2 rounded-full overflow-hidden mb-2 ${isCompleted ? 'bg-emerald-200' : 'bg-slate-200'}`}>
                                                             <div 
                                                                 className={`h-full rounded-full transition-all duration-500 ${
                                                                     status === 'delayed' ? 'bg-red-500' : 
@@ -261,27 +272,32 @@ const AdminPage: React.FC<AdminPageProps> = ({
                                                                 style={{ width: `${progress}%` }}
                                                             ></div>
                                                         </div>
-                                                        <div className={`w-full py-1.5 rounded-md border text-center text-[10px] font-bold uppercase tracking-wide ${statusColor}`}>
+                                                        <div className={`w-full py-1 rounded-md border text-center text-[9px] font-bold uppercase tracking-wide ${statusColor}`}>
                                                             {getStatusLabel(status, predictionData)}
                                                         </div>
                                                     </div>
                                                 </div>
 
                                                 {/* Footer Info */}
-                                                <div className={`flex justify-between items-center pt-4 border-t ${isCompleted ? 'border-emerald-100' : 'border-slate-200'}`}>
+                                                <div className={`flex justify-between items-center pt-2 border-t ${isCompleted ? 'border-emerald-100' : 'border-slate-200'}`}>
                                                     <div className="flex flex-col">
-                                                        <span className={`text-[9px] font-bold uppercase ${isCompleted ? 'text-emerald-400' : 'text-slate-400'}`}>Deadline</span>
-                                                        <span className={`text-sm font-bold ${status === 'delayed' ? 'text-red-500' : (isCompleted ? 'text-emerald-800' : 'text-slate-700')}`}>
+                                                        <span className={`text-[8px] font-bold uppercase ${isCompleted ? 'text-emerald-400' : 'text-slate-400'}`}>Deadline</span>
+                                                        <span className={`text-xs font-bold ${status === 'delayed' ? 'text-red-500' : (isCompleted ? 'text-emerald-800' : 'text-slate-700')}`}>
                                                             {endDate ? new Date(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A'}
                                                         </span>
                                                     </div>
                                                     <div className="flex flex-col items-end">
-                                                        <span className={`text-[9px] font-bold uppercase ${isCompleted ? 'text-emerald-400' : 'text-slate-400'}`}>Pending</span>
-                                                        <span className={`text-sm font-bold ${isCompleted ? 'text-emerald-800' : 'text-slate-700'}`}>
+                                                        <span className={`text-[8px] font-bold uppercase ${isCompleted ? 'text-emerald-400' : 'text-slate-400'}`}>Pending</span>
+                                                        <span className={`text-xs font-bold ${isCompleted ? 'text-emerald-800' : 'text-slate-700'}`}>
                                                             {remainingUnits} Units
                                                         </span>
                                                     </div>
                                                 </div>
+                                                {!isCompleted && predictedDate && (
+                                                    <div className="mt-1 text-center text-[10px] border-t border-slate-200 pt-1">
+                                                        <span className="text-indigo-600 font-bold">Predicted: {predictedDate}</span>
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })}

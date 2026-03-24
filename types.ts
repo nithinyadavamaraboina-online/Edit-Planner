@@ -11,12 +11,13 @@ export interface Leave {
 export interface Worker {
   id: string;
   name: string;
-  role: 'Editor' | 'Intern' | 'Assist';
+  role: 'Editor' | 'Intern' | 'Assist' | 'Manager' | 'TL';
   genCapacity: number;
   editCapacity: number;
   limitations?: string;
   language?: string; // New: Team Language (e.g., 'Telugu', 'Hindi')
   leaves?: Leave[]; // New: Track leaves for this worker
+  joiningDate?: string; // New: Date of joining (YYYY-MM-DD)
 }
 
 export interface Workload {
@@ -42,6 +43,8 @@ export interface Batch {
   language?: string; // New: Associated Language
   dummyRows?: string; // New: Rows to ignore (e.g. "5 10 25")
   normalRows?: string; // New: Rows that are normal videos (e.g. "1 2 3")
+  startRow?: number;
+  endRow?: number;
   // Computed/Progress properties (optional as they are calculated at runtime)
   completedGen?: number;
   completedEdit?: number;
@@ -53,6 +56,26 @@ export interface Batch {
 export interface User {
   role: 'admin' | 'lead';
   language: string; // The language they are currently managing
+}
+
+export interface EditorStats {
+  workerId: string;
+  name: string;
+  team: string;
+  totalPoints: number;
+  generations: number;
+  edits: number;
+}
+
+export interface AIInsightsResponse {
+  recommendations: string[];
+  bottlenecks: string[];
+  batchPredictions: {
+    batchId: string;
+    batchName: string;
+    predictedDaysRemaining: number;
+    status: 'On Track' | 'Delayed' | 'Critical';
+  }[];
 }
 
 // AI Response Types

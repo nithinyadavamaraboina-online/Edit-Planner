@@ -262,7 +262,13 @@ const PlanDashboard: React.FC<PlanDashboardProps> = ({
                                 <tr key={`${dayPlan.day}-${task.workerId}`} className={`hover:bg-slate-50/80 group transition-colors ${task.isOnLeave ? 'bg-red-50/30' : (idx % 2 === 0 ? 'bg-white' : 'bg-slate-100')}`}>
                                     <td className="p-2 border-r border-slate-50">
                                         <div className="flex items-center gap-3">
-                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${task.role === 'Intern' ? 'bg-purple-100 text-purple-600' : 'bg-blue-100 text-blue-600'}`}>
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${
+                                                task.role === 'Intern' ? 'bg-purple-100 text-purple-600' : 
+                                                task.role === 'Assist' ? 'bg-orange-100 text-orange-600' : 
+                                                task.role === 'Manager' ? 'bg-emerald-100 text-emerald-600' :
+                                                task.role === 'TL' ? 'bg-teal-100 text-teal-600' :
+                                                'bg-blue-100 text-blue-600'
+                                            }`}>
                                                 {task.person.charAt(0)}
                                             </div>
                                             <div>

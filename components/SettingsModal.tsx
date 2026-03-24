@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Worker } from '../types';
-import { X, Users, Globe, Plus, Trash2, Settings, UserPlus } from 'lucide-react';
+import { X, Users, Globe, Plus, Trash2, Settings, UserPlus, Download, Upload, HardDrive, RefreshCw } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -11,6 +11,10 @@ interface SettingsModalProps {
   languages: string[];
   setLanguages: React.Dispatch<React.SetStateAction<string[]>>;
   currentLanguage: string;
+  onExportData?: () => void;
+  onImportData?: (data: any) => void;
+  onRestoreLocalBackup?: () => void;
+  onError?: (msg: string) => void;
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -20,14 +24,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   setWorkers,
   languages,
   setLanguages,
-  currentLanguage
+  currentLanguage,
+  onExportData,
+  onImportData,
+  onRestoreLocalBackup,
+  onError
 }) => {
-  const [activeTab, setActiveTab] = useState<'team' | 'languages'>('team');
+  const [activeTab, setActiveTab] = useState<'team' | 'languages' | 'data'>('team');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Worker State
   const [newWorkerName, setNewWorkerName] = useState('');
   const [newWorkerRole, setNewWorkerRole] = useState<'Editor' | 'Intern' | 'Assist'>('Editor');
   const [newWorkerLang, setNewWorkerLang] = useState(currentLanguage);
+  const [newWorkerJoiningDate, setNewWorkerJoiningDate] = useState('');
 
   // Language State
   const [newLang, setNewLang] = useState('');
@@ -60,11 +70,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         genCapacity: newWorkerRole === 'Intern' ? 6 : 0,
         editCapacity: newWorkerRole === 'Editor' ? 9 : 0,
         language: newWorkerLang,
-        limitations: ''
+        limitations: '',
+        joiningDate: newWorkerJoiningDate || '2026-02-01'
     };
 
     setWorkers(prev => [...prev, newWorker]);
     setNewWorkerName('');
+    setNewWorkerJoiningDate('');
   };
 
   const deleteWorker = (workerId: string) => {
@@ -75,6 +87,10 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
 
   const handleWorkerLanguageChange = (workerId: string, lang: string) => {
     setWorkers(prev => prev.map(w => w.id === workerId ? { ...w, language: lang } : w));
+  };
+
+  const handleWorkerRoleChange = (workerId: string, role: any) => {
+    setWorkers(prev => prev.map(w => w.id === workerId ? { ...w, role } : w));
   };
 
   // --- LANGUAGE LOGIC ---
@@ -125,6 +141,12 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             >
                 System Languages
             </button>
+            <button 
+                onClick={() => setActiveTab('data')}
+                className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'data' ? 'border-[#F26C21] text-[#F26C21]' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+            >
+                Data Backup
+            </button>
         </div>
         
         {/* Content */}
@@ -153,7 +175,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                             <UserPlus size={16} className="text-[#F26C21]"/> Add New Member
                         </div>
                         <div className="grid grid-cols-12 gap-3 items-end">
-                            <div className="col-span-12 sm:col-span-4">
+                            <div className="col-span-12 sm:col-span-3">
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Name</label>
                                 <input 
                                     type="text" 
@@ -163,7 +185,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                     className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-[#F26C21] bg-slate-50 text-sm font-bold text-slate-800"
                                 />
                             </div>
-                            <div className="col-span-6 sm:col-span-3">
+                            <div className="col-span-4 sm:col-span-2">
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Role</label>
                                 <select 
                                     value={newWorkerRole}
@@ -173,9 +195,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                     <option value="Editor">Editor</option>
                                     <option value="Intern">Intern</option>
                                     <option value="Assist">Assist</option>
+                                    <option value="Manager">Manager</option>
+                                    <option value="TL">TL</option>
                                 </select>
                             </div>
-                            <div className="col-span-6 sm:col-span-3">
+                            <div className="col-span-4 sm:col-span-2">
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Team</label>
                                 <select 
                                     value={newWorkerLang}
@@ -186,6 +210,15 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                         <option key={lang} value={lang}>{lang}</option>
                                     ))}
                                 </select>
+                            </div>
+                            <div className="col-span-4 sm:col-span-3">
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">Joining Date</label>
+                                <input 
+                                    type="date" 
+                                    value={newWorkerJoiningDate}
+                                    onChange={(e) => setNewWorkerJoiningDate(e.target.value)}
+                                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-[#F26C21] bg-slate-50 text-sm font-bold text-slate-800"
+                                />
                             </div>
                             <div className="col-span-12 sm:col-span-2">
                                 <button 
@@ -207,6 +240,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                     <th className="p-3 pl-4">Name</th>
                                     <th className="p-3">Role</th>
                                     <th className="p-3">Team</th>
+                                    <th className="p-3">Joining Date</th>
                                     <th className="p-3 text-right">Action</th>
                                 </tr>
                             </thead>
@@ -215,16 +249,36 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                     <tr key={worker.id} className="hover:bg-slate-50 transition-colors group">
                                         <td className="p-3 pl-4">
                                             <div className="flex items-center gap-3">
-                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs text-white font-bold shadow-sm ${worker.role === 'Intern' ? 'bg-purple-400' : 'bg-blue-500'}`}>
+                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs text-white font-bold shadow-sm ${
+                                                    worker.role === 'Intern' ? 'bg-purple-400' : 
+                                                    worker.role === 'Assist' ? 'bg-orange-400' : 
+                                                    worker.role === 'Manager' ? 'bg-emerald-500' :
+                                                    worker.role === 'TL' ? 'bg-teal-500' :
+                                                    'bg-blue-500'
+                                                }`}>
                                                     {worker.name.charAt(0)}
                                                 </div>
                                                 <span className="font-bold text-slate-700 text-sm">{worker.name}</span>
                                             </div>
                                         </td>
                                         <td className="p-3">
-                                            <span className={`text-xs font-bold px-2 py-1 rounded-md ${worker.role === 'Intern' ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700'}`}>
-                                                {worker.role}
-                                            </span>
+                                            <select 
+                                                value={worker.role} 
+                                                onChange={(e) => handleWorkerRoleChange(worker.id, e.target.value)}
+                                                className={`text-xs font-bold px-2 py-1 rounded-md border-0 outline-none cursor-pointer ${
+                                                    worker.role === 'Intern' ? 'bg-purple-50 text-purple-700' : 
+                                                    worker.role === 'Assist' ? 'bg-orange-50 text-orange-700' : 
+                                                    worker.role === 'Manager' ? 'bg-emerald-50 text-emerald-700' :
+                                                    worker.role === 'TL' ? 'bg-teal-50 text-teal-700' :
+                                                    'bg-blue-50 text-blue-700'
+                                                }`}
+                                            >
+                                                <option value="Editor">Editor</option>
+                                                <option value="Intern">Intern</option>
+                                                <option value="Assist">Assist</option>
+                                                <option value="Manager">Manager</option>
+                                                <option value="TL">TL</option>
+                                            </select>
                                         </td>
                                         <td className="p-3">
                                             <select 
@@ -236,6 +290,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                                     <option key={lang} value={lang}>{lang}</option>
                                                 ))}
                                             </select>
+                                        </td>
+                                        <td className="p-3">
+                                            <input 
+                                                type="date" 
+                                                value={worker.joiningDate || '2026-02-01'}
+                                                onChange={(e) => {
+                                                    const updatedWorkers = workers.map(w => 
+                                                        w.id === worker.id ? { ...w, joiningDate: e.target.value } : w
+                                                    );
+                                                    setWorkers(updatedWorkers);
+                                                }}
+                                                className="p-1 border border-slate-200 rounded text-xs font-bold bg-white focus:ring-1 focus:ring-purple-500 outline-none text-slate-700 cursor-pointer w-full max-w-[120px]"
+                                            />
                                         </td>
                                         <td className="p-3 text-right">
                                             <button 
@@ -297,6 +364,84 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                 )}
                             </div>
                         ))}
+                    </div>
+                </div>
+            )}
+
+            {/* TAB: DATA BACKUP */}
+            {activeTab === 'data' && (
+                <div className="space-y-6">
+                    <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+                        <div className="flex items-center gap-3 mb-4 text-slate-800 font-bold text-lg">
+                            <HardDrive size={24} className="text-[#F26C21]"/> Data Management
+                        </div>
+                        <p className="text-sm text-slate-500 mb-6">
+                            Export your entire project data (workers, batches, schedule, etc.) to a file, or import a previously saved backup. This is useful for keeping local backups of your work.
+                        </p>
+
+                        <div className="flex flex-col sm:flex-row gap-4">
+                            <button 
+                                onClick={onExportData}
+                                className="flex-1 flex items-center justify-center gap-2 bg-[#F26C21] hover:bg-[#d95a10] text-white py-3 px-4 rounded-xl font-bold transition-all shadow-sm active:scale-95"
+                            >
+                                <Download size={18} />
+                                Export Backup
+                            </button>
+
+                            <button 
+                                onClick={() => fileInputRef.current?.click()}
+                                className="flex-1 flex items-center justify-center gap-2 bg-white border-2 border-slate-200 hover:border-[#F26C21] hover:text-[#F26C21] text-slate-700 py-3 px-4 rounded-xl font-bold transition-all shadow-sm active:scale-95"
+                            >
+                                <Upload size={18} />
+                                Import Backup
+                            </button>
+                            <input 
+                                type="file" 
+                                accept=".json"
+                                ref={fileInputRef}
+                                className="hidden"
+                                onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    const reader = new FileReader();
+                                    reader.onload = (event) => {
+                                        try {
+                                            const data = JSON.parse(event.target?.result as string);
+                                            if (onImportData) {
+                                                onImportData(data);
+                                                onClose();
+                                            }
+                                        } catch (err) {
+                                            if (onError) {
+                                                onError("Failed to parse backup file. Please ensure it is a valid JSON file exported from this app.");
+                                            }
+                                        }
+                                    };
+                                    reader.readAsText(file);
+                                    // Reset input
+                                    if (fileInputRef.current) fileInputRef.current.value = '';
+                                }}
+                            />
+                        </div>
+                        
+                        <div className="mt-6 pt-6 border-t border-slate-100">
+                            <h4 className="text-sm font-bold text-slate-800 mb-2">Emergency Recovery</h4>
+                            <p className="text-xs text-slate-500 mb-4">
+                                The app automatically saves a rolling backup of your last active plan to your browser's local storage. Use this if your cloud sync fails or data is accidentally overwritten.
+                            </p>
+                            <button 
+                                onClick={() => {
+                                    if (onRestoreLocalBackup) {
+                                        onRestoreLocalBackup();
+                                        onClose();
+                                    }
+                                }}
+                                className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 px-4 rounded-xl font-bold transition-all shadow-sm active:scale-95"
+                            >
+                                <RefreshCw size={18} />
+                                Restore Local Auto-Backup
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

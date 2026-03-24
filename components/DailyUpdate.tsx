@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { ProductionPlan, Workload, Worker, Batch, TaskAssignment } from '../types';
-import { Lock, Unlock, CheckCircle, Calendar as CalendarIcon, Edit3, Film, ArrowLeft, ChevronLeft, ChevronRight, Check, Plus, Layers, PieChart, Clock, Trash2, CornerDownRight, Split, Hash, UserPlus, X } from 'lucide-react';
+import { Lock, Unlock, CheckCircle, Calendar as CalendarIcon, Edit3, Film, ArrowLeft, ChevronLeft, ChevronRight, Check, Plus, Layers, PieChart, Clock, Trash2, CornerDownRight, Split, Hash, UserPlus, X, AlertCircle } from 'lucide-react';
 
 interface DailyUpdateProps {
   plan: ProductionPlan;
@@ -11,7 +11,7 @@ interface DailyUpdateProps {
   batches?: Batch[];
   leaves?: Record<string, number[]>; // Add leaves prop
   onUpdatePlan: (plan: ProductionPlan, saveToCloud?: boolean, dayToSave?: number, assignmentId?: string, isDeletion?: boolean) => void;
-  onToggleLeave?: (workerId: string, day: number) => void;
+  onToggleLeave?: (workerId: string, day: number, forceState?: boolean, basePlan?: any) => void;
   onDeleteBatch: (batchId: string) => void;
   onEditBatch: (batch: Batch) => void;
   currentLanguage: string;
@@ -79,6 +79,7 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
 
   const [viewDate, setViewDate] = useState(() => getDateFromDayIndex(selectedDay));
   const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
 
   // Define currentCalendarDate for display in the UI
   const currentCalendarDate = getDateFromDayIndex(selectedDay);
@@ -367,6 +368,62 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
   };
 
   // CRUD
+  const checkDuplicateRows = (inputStr: string, batchId: string | undefined, type: 'gen' | 'edit', currentTaskId: string | undefined) => {
+    if (!inputStr || !batchId || batchId === 'DEFAULT' || batchId === 'LEAVE') return inputStr;
+    
+    const batch = batches.find(b => b.id === batchId);
+    if (!batch) return inputStr;
+
+    const totalRows = batch.aiVideos + batch.normalVideos;
+    const maxRow = batch.endRow !== undefined ? batch.endRow : totalRows + 1;
+    const minRow = batch.startRow !== undefined ? batch.startRow : 2;
+
+    const inputNumbers = inputStr.split(/[\s,]+/).map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+    if (inputNumbers.length === 0) return inputStr;
+
+    const warnings: string[] = [];
+    const duplicates = new Set<number>();
+    const outOfBounds: number[] = [];
+
+    inputNumbers.forEach(n => {
+        if (n < minRow || n > maxRow) {
+            outOfBounds.push(n);
+        }
+    });
+
+    if (outOfBounds.length > 0) {
+        warnings.push(`Row(s) [${outOfBounds.join(', ')}] do not belong to the current batch. The valid range is ${minRow} to ${maxRow}.`);
+    }
+
+    plan.schedule.forEach(day => {
+      (day.assignments || []).forEach(assignment => {
+        if (assignment.batchId === batchId && assignment.id !== currentTaskId) {
+          const existingRowsStr = type === 'gen' 
+            ? (assignment.assignedGenRows || assignment.plannedGenRows || '')
+            : (assignment.assignedEditRows || assignment.plannedEditRows || '');
+            
+          const existingNumbers = existingRowsStr.split(/[\s,]+/).map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
+          
+          const overlap = inputNumbers.filter(n => existingNumbers.includes(n) && !outOfBounds.includes(n));
+          if (overlap.length > 0) {
+            const workerName = workers.find(w => w.id === assignment.workerId)?.name || 'Unknown';
+            const exactDate = getDateFromDayIndex(day.day).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' });
+            warnings.push(`Row(s) [${overlap.join(', ')}] already done by ${workerName} on ${exactDate}.`);
+            overlap.forEach(n => duplicates.add(n));
+          }
+        }
+      });
+    });
+
+    if (warnings.length > 0) {
+      setDuplicateWarning(warnings.join('\n\n'));
+      const cleanNumbers = inputNumbers.filter(n => !duplicates.has(n) && !outOfBounds.includes(n));
+      return cleanNumbers.join(' ');
+    }
+    
+    return inputStr;
+  };
+
   const handleUpdate = (task: TaskAssignment, field: 'generations' | 'edits' | 'batchId' | 'assignedGenRows' | 'assignedEditRows', value: any) => {
       let val = value;
       if (field === 'generations' || field === 'edits') {
@@ -696,7 +753,13 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                                         className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 border border-transparent hover:border-slate-100 transition-all group"
                                     >
                                         <div className="flex items-center gap-3">
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm ${w.role === 'Intern' ? 'bg-purple-400' : w.role === 'Assist' ? 'bg-orange-400' : 'bg-blue-500'}`}>
+                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm ${
+                                                w.role === 'Intern' ? 'bg-purple-400' : 
+                                                w.role === 'Assist' ? 'bg-orange-400' : 
+                                                w.role === 'Manager' ? 'bg-emerald-500' :
+                                                w.role === 'TL' ? 'bg-teal-500' :
+                                                'bg-blue-500'
+                                            }`}>
                                                 {w.name.charAt(0)}
                                             </div>
                                             <div className="text-left">
@@ -953,7 +1016,13 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                                             <div className="flex items-center gap-3">
                                                 {index === 0 ? (
                                                     <>
-                                                        <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-sm ${worker.role === 'Intern' ? 'bg-purple-400' : worker.role === 'Assist' ? 'bg-orange-400' : 'bg-blue-500'}`}>{worker.name.charAt(0)}</div>
+                                                        <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-sm ${
+                                                            worker.role === 'Intern' ? 'bg-purple-400' : 
+                                                            worker.role === 'Assist' ? 'bg-orange-400' : 
+                                                            worker.role === 'Manager' ? 'bg-emerald-500' :
+                                                            worker.role === 'TL' ? 'bg-teal-500' :
+                                                            'bg-blue-500'
+                                                        }`}>{worker.name.charAt(0)}</div>
                                                         <div className="min-w-0">
                                                             <div className="text-sm font-bold text-slate-700 truncate" title={worker.name}>{worker.name}</div>
                                                             <div className="text-[10px] text-slate-400 truncate flex items-center gap-1">
@@ -1040,6 +1109,12 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                                                     disabled={isCurrentDayLocked}
                                                     value={task.assignedGenRows || (task.assignedRows || '')} 
                                                     onChange={(e) => handleUpdate(task, 'assignedGenRows', e.target.value)} 
+                                                    onBlur={(e) => {
+                                                        const valid = checkDuplicateRows(e.target.value, task.batchId, 'gen', task.id);
+                                                        if (valid !== e.target.value) {
+                                                            handleUpdate(task, 'assignedGenRows', valid);
+                                                        }
+                                                    }}
                                                     className={`flex-1 min-w-0 py-1 h-7 px-2 text-left font-mono text-xs font-bold border border-purple-200 rounded-md outline-none focus:ring-1 focus:ring-purple-400 bg-purple-50/30 text-slate-900 placeholder:text-slate-300 ${isCurrentDayLocked ? 'opacity-50 cursor-not-allowed' : ''}`} 
                                                     placeholder=""
                                                 />
@@ -1066,6 +1141,12 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                                                     disabled={isCurrentDayLocked}
                                                     value={task.assignedEditRows || ''} 
                                                     onChange={(e) => handleUpdate(task, 'assignedEditRows', e.target.value)} 
+                                                    onBlur={(e) => {
+                                                        const valid = checkDuplicateRows(e.target.value, task.batchId, 'edit', task.id);
+                                                        if (valid !== e.target.value) {
+                                                            handleUpdate(task, 'assignedEditRows', valid);
+                                                        }
+                                                    }}
                                                     className={`flex-1 min-w-0 py-1 h-7 px-2 text-left font-mono text-xs font-bold border border-blue-200 rounded-md outline-none focus:ring-1 focus:ring-blue-400 bg-blue-50/30 text-slate-900 placeholder:text-slate-300 ${isCurrentDayLocked ? 'opacity-50 cursor-not-allowed' : ''}`} 
                                                     placeholder=""
                                                 />
@@ -1111,6 +1192,31 @@ const DailyUpdate: React.FC<DailyUpdateProps> = ({
                  </div>
             </div>
         </div>
+
+        {/* Duplicate Warning Modal */}
+        {duplicateWarning && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
+                    <div className="p-5 border-b border-slate-100 flex items-center gap-3 bg-red-50">
+                        <div className="p-2 bg-red-100 rounded-lg">
+                            <AlertCircle className="text-red-600" size={20} />
+                        </div>
+                        <h2 className="text-lg font-bold text-red-800">Duplicate Assignment Detected</h2>
+                    </div>
+                    <div className="p-5 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700 font-medium">
+                        {duplicateWarning}
+                    </div>
+                    <div className="p-5 border-t border-slate-100 flex justify-end bg-slate-50">
+                        <button 
+                            onClick={() => setDuplicateWarning(null)}
+                            className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-lg shadow-lg shadow-red-200 transition-all active:scale-95"
+                        >
+                            Understood
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 };

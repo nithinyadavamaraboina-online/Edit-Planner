@@ -93,6 +93,8 @@ const WorkerForm: React.FC<WorkerFormProps> = ({ workers, setWorkers, currentLan
                     <option value="Editor">Editor</option>
                     <option value="Intern">Intern</option>
                     <option value="Assist">Assist</option>
+                    <option value="Manager">Manager</option>
+                    <option value="TL">TL</option>
                 </select>
             </div>
 
@@ -139,12 +141,24 @@ const WorkerForm: React.FC<WorkerFormProps> = ({ workers, setWorkers, currentLan
                   <div className={`w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center text-xs font-bold
                     ${worker.role === 'Editor' ? 'bg-blue-100 text-blue-600' : 
                       worker.role === 'Intern' ? 'bg-purple-100 text-purple-600' : 
+                      worker.role === 'Manager' ? 'bg-emerald-100 text-emerald-600' :
+                      worker.role === 'TL' ? 'bg-teal-100 text-teal-600' :
                       'bg-orange-100 text-orange-600'}`}>
                     {worker.name.charAt(0)}
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-bold text-slate-800 truncate">{worker.name}</p>
-                    <p className="text-[10px] text-slate-500 uppercase font-medium">{worker.role}</p>
+                    <select 
+                        value={worker.role}
+                        onChange={(e) => setWorkers(prev => prev.map(w => w.id === worker.id ? { ...w, role: e.target.value as any } : w))}
+                        className="text-[10px] text-slate-500 uppercase font-medium bg-transparent border-none outline-none cursor-pointer p-0 m-0"
+                    >
+                        <option value="Editor">Editor</option>
+                        <option value="Intern">Intern</option>
+                        <option value="Assist">Assist</option>
+                        <option value="Manager">Manager</option>
+                        <option value="TL">TL</option>
+                    </select>
                   </div>
                 </div>
                 

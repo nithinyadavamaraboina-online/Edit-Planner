@@ -1,6 +1,6 @@
 
-import { Worker, Workload, ProductionPlan, DayPlan, TaskAssignment, Bottlenecks, PlanSummary } from "../types";
-import { GoogleGenAI } from "@google/genai";
+import { Worker, Workload, ProductionPlan, DayPlan, TaskAssignment, Bottlenecks, PlanSummary, Batch, AIInsightsResponse } from "../types";
+import { GoogleGenAI, Type } from "@google/genai";
 
 // --- HEURISTIC ALGORITHM (FALLBACK) ---
 // Used when no API Key is provided
@@ -393,5 +393,63 @@ export const generateProductionPlan = async (
     return generateSmartPlan(apiKey, workers, workload, leaves, startDay);
   } else {
     return generateHeuristicPlan(workers, workload, leaves, startDay);
+  }
+};
+
+export const generateAIInsights = async (
+  apiKey: string,
+  plan: ProductionPlan,
+  workers: Worker[],
+  batches: Batch[]
+): Promise<AIInsightsResponse> => {
+  const ai = new GoogleGenAI({ apiKey });
+
+  const systemInstruction = "You are an AI Operations Manager. Editor Efficiency is calculated as: Generation = 1.5 points, Edit = 1.0 point. Analyze the active batches and current schedule. Return a STRICT JSON object matching the AIInsightsResponse interface.";
+  const userPrompt = JSON.stringify({ activeBatches: batches.filter(b => b.status === 'active'), currentSchedule: plan.schedule });
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-pro-preview',
+      contents: userPrompt,
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            recommendations: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            },
+            bottlenecks: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING }
+            },
+            batchPredictions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  batchId: { type: Type.STRING },
+                  batchName: { type: Type.STRING },
+                  predictedDaysRemaining: { type: Type.NUMBER },
+                  status: { type: Type.STRING }
+                },
+                required: ["batchId", "batchName", "predictedDaysRemaining", "status"]
+              }
+            }
+          },
+          required: ["recommendations", "bottlenecks", "batchPredictions"]
+        }
+      }
+    });
+
+    const text = response.text;
+    if (!text) throw new Error("Empty response from AI");
+    
+    return JSON.parse(text) as AIInsightsResponse;
+  } catch (error) {
+    console.error("AI Insights Generation failed", error);
+    throw new Error("Failed to generate AI insights. Please check your API key and try again.");
   }
 };

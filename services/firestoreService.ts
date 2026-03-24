@@ -4,6 +4,61 @@ import { getFirestore, collection, addDoc, doc, writeBatch, serverTimestamp, Fir
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, Auth, User as FirebaseUser } from 'firebase/auth';
 import { Worker, Workload, ProductionPlan, Batch, DayPlan, TaskAssignment } from '../types';
 
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const authInstance = getAuthInstance();
+  const currentUser = authInstance.currentUser;
+  
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: currentUser?.uid,
+      email: currentUser?.email,
+      emailVerified: currentUser?.emailVerified,
+      isAnonymous: currentUser?.isAnonymous,
+      tenantId: currentUser?.tenantId,
+      providerInfo: currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  };
+  
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 // ... (existing code)
 
 const DEFAULT_LANGUAGES = ['Telugu', 'Tamil', 'Malayalam', 'Kannada'];
@@ -83,6 +138,11 @@ export const subscribeToPlan = (planId: string, onUpdate: (data: any) => void) =
           };
           emit();
       }
+  }, (error) => {
+      if (error instanceof Error && error.message.includes('Missing or insufficient permissions')) {
+          handleFirestoreError(error, OperationType.GET, `production_plans/${planId}`);
+      }
+      console.error("Error subscribing to plan:", error);
   });
 
   const unsubDays = onSnapshot(daysColRef, (snapshot) => {
@@ -125,11 +185,21 @@ export const subscribeToPlan = (planId: string, onUpdate: (data: any) => void) =
                           }
                       });
                       emit();
+                  }, (error) => {
+                      if (error instanceof Error && error.message.includes('Missing or insufficient permissions')) {
+                          handleFirestoreError(error, OperationType.LIST, `production_plans/${planId}/days/${dayId}/assignments`);
+                      }
+                      console.error("Error subscribing to assignments:", error);
                   });
               }
           }
       });
       emit();
+  }, (error) => {
+      if (error instanceof Error && error.message.includes('Missing or insufficient permissions')) {
+          handleFirestoreError(error, OperationType.LIST, `production_plans/${planId}/days`);
+      }
+      console.error("Error subscribing to days:", error);
   });
 
   return () => {
@@ -140,15 +210,7 @@ export const subscribeToPlan = (planId: string, onUpdate: (data: any) => void) =
 };
 
 // Hardcoded configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyBQ43797xkZC0mhWg_8z3SzELYIzRT-xMY",
-  authDomain: "wedo-ai.firebaseapp.com",
-  projectId: "wedo-ai",
-  storageBucket: "wedo-ai.firebasestorage.app",
-  messagingSenderId: "241094368552",
-  appId: "1:241094368552:web:589e6d5ddb416ed853841d",
-  measurementId: "G-ZMXFL519KC"
-};
+import firebaseConfig from '../firebase-applet-config.json';
 
 let app: FirebaseApp | undefined;
 let db: Firestore | undefined;
@@ -196,7 +258,7 @@ const getDb = () => {
     app = getApp();
   }
   
-  db = getFirestore(app);
+  db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
   return db;
 };
 
@@ -266,6 +328,9 @@ export const saveDayToCloud = async (planId: string, dayPlan: DayPlan) => {
             await batch.commit();
         }
     } catch (e) {
+        if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+            handleFirestoreError(e, OperationType.UPDATE, `production_plans/${planId}/days/${dayPlan.day}`);
+        }
         console.error("Error saving day to cloud:", e);
         throw e;
     }
@@ -280,6 +345,9 @@ export const saveAssignmentToCloud = async (planId: string, dayNum: number, assi
         const taskRef = doc(database, 'production_plans', planId, 'days', dayNum.toString(), 'assignments', assignment.id || assignment.workerId);
         await setDoc(taskRef, sanitizeForFirestore(assignment), { merge: true });
     } catch (e) {
+        if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+            handleFirestoreError(e, OperationType.UPDATE, `production_plans/${planId}/days/${dayNum}/assignments/${assignment.id || assignment.workerId}`);
+        }
         console.error("Error saving assignment to cloud:", e);
         throw e;
     }
@@ -294,6 +362,9 @@ export const deleteAssignmentFromCloud = async (planId: string, dayNum: number, 
         const taskRef = doc(database, 'production_plans', planId, 'days', dayNum.toString(), 'assignments', assignmentId);
         await deleteDoc(taskRef);
     } catch (e) {
+        if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+            handleFirestoreError(e, OperationType.DELETE, `production_plans/${planId}/days/${dayNum}/assignments/${assignmentId}`);
+        }
         console.error("Error deleting assignment from cloud:", e);
         throw e;
     }
@@ -314,6 +385,9 @@ export const updatePresence = async (planId: string, userId: string, userName: s
             lastActive: serverTimestamp()
         });
     } catch (e) {
+        if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+            handleFirestoreError(e, OperationType.UPDATE, `production_plans/${planId}/presence/${userId}`);
+        }
         console.error("Error updating presence:", e);
     }
 };
@@ -332,6 +406,11 @@ export const subscribeToPresence = (planId: string, onUpdate: (users: any[]) => 
                 return (now - lastActive) < 300000;
             });
         onUpdate(users);
+    }, (error) => {
+        if (error instanceof Error && error.message.includes('Missing or insufficient permissions')) {
+            handleFirestoreError(error, OperationType.LIST, `production_plans/${planId}/presence`);
+        }
+        console.error("Error subscribing to presence:", error);
     });
 };
 
@@ -405,6 +484,9 @@ export const savePlanToCloud = async (
 
     return finalPlanId!;
   } catch (error: any) {
+    if (error instanceof Error && error.message.includes('Missing or insufficient permissions')) {
+        handleFirestoreError(error, planId ? OperationType.UPDATE : OperationType.CREATE, `production_plans/${planId || 'new'}`);
+    }
     console.error("Firestore Save Error:", error);
     throw error; // Re-throw to be caught by UI
   }
@@ -417,23 +499,33 @@ export const getSavedPlans = async (): Promise<SavedPlanMeta[]> => {
   try {
       const database = getDb();
       const plansCol = collection(database, 'production_plans');
-      // Keep ordering by createdAt to ensure consistent list, users can rely on "most recently created"
-      // If we switch to updatedAt, we might lose old docs that lack the field.
-      const q = query(plansCol, orderBy('createdAt', 'desc'));
+      const q = query(plansCol);
       const snapshot = await getDocs(q);
       
-      return snapshot.docs.map(doc => {
+      console.log("getSavedPlans snapshot size:", snapshot.size);
+      
+      const plans = snapshot.docs.map(doc => {
           const data = doc.data();
           return {
             id: doc.id,
             projectName: data.projectName || 'Untitled',
             notes: data.notes || '',
-            createdAt: data.createdAt,
+            createdAt: data.createdAt || data.updatedAt || { toMillis: () => 0 },
             summary: data.summary
           };
       });
+      
+      // Sort in memory to ensure we don't filter out docs missing createdAt
+      return plans.sort((a, b) => {
+          const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : 0;
+          const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : 0;
+          return timeB - timeA;
+      });
   } catch (e) {
       console.error("Error fetching plans:", e);
+      if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+          handleFirestoreError(e, OperationType.LIST, 'production_plans');
+      }
       return [];
   }
 };
@@ -442,51 +534,80 @@ export const getSavedPlans = async (): Promise<SavedPlanMeta[]> => {
  * Loads a full plan including its days subcollection.
  */
 export const loadPlanFromCloud = async (planId: string) => {
-  const database = getDb();
-  const planDocRef = doc(database, 'production_plans', planId);
-  const planDoc = await getDoc(planDocRef);
-  
-  if (!planDoc.exists()) {
-    throw new Error("Plan not found");
-  }
-
-  const data = planDoc.data();
-  
-  // Try to load days from subcollection
-  const daysColRef = collection(planDocRef, 'days');
-  const daysSnapshot = await getDocs(daysColRef);
-  let schedule = data.schedule || [];
-  
-  if (!daysSnapshot.empty) {
-      const subColDays = daysSnapshot.docs.map(d => d.data() as DayPlan).sort((a, b) => a.day - b.day);
-      if (subColDays.length > 0) schedule = subColDays;
-  }
-  
-  return {
-    workers: data.workers,
-    workload: data.workload,
-    batches: data.batches || [],
-    languages: data.languages || DEFAULT_LANGUAGES,
-    plan: {
-      summary: data.summary,
-      bottlenecks: data.bottlenecks,
-      constraints: data.constraints,
-      risks: data.risks,
-      schedule: schedule
-    },
-    projectMeta: {
-        id: planDoc.id, // Return ID so we can update it later
-        name: data.projectName,
-        notes: data.notes,
-        synced: true
+  try {
+    const database = getDb();
+    const planDocRef = doc(database, 'production_plans', planId);
+    const planDoc = await getDoc(planDocRef);
+    
+    if (!planDoc.exists()) {
+      throw new Error("Plan not found");
     }
-  };
+
+    const data = planDoc.data();
+    
+    // Try to load days from subcollection
+    const daysColRef = collection(planDocRef, 'days');
+    const daysSnapshot = await getDocs(daysColRef);
+    let schedule = data.schedule || [];
+    
+    if (!daysSnapshot.empty) {
+        const subColDays = await Promise.all(daysSnapshot.docs.map(async (d) => {
+            const dayData = d.data() as DayPlan;
+            // Load assignments subcollection for this day
+            const assignmentsColRef = collection(d.ref, 'assignments');
+            const assignmentsSnapshot = await getDocs(assignmentsColRef);
+            if (!assignmentsSnapshot.empty) {
+                const assignments = assignmentsSnapshot.docs.map(a => a.data() as TaskAssignment);
+                // Merge subcollection assignments with any existing ones
+                const assignmentMap = new Map<string, TaskAssignment>();
+                (dayData.assignments || []).forEach(a => assignmentMap.set(a.id || a.workerId, a));
+                assignments.forEach(a => assignmentMap.set(a.id || a.workerId, a));
+                dayData.assignments = Array.from(assignmentMap.values());
+            }
+            return dayData;
+        }));
+        
+        schedule = subColDays.sort((a, b) => a.day - b.day);
+    }
+    
+    return {
+      workers: data.workers,
+      workload: data.workload,
+      batches: data.batches || [],
+      languages: data.languages || DEFAULT_LANGUAGES,
+      plan: {
+        summary: data.summary,
+        bottlenecks: data.bottlenecks,
+        constraints: data.constraints,
+        risks: data.risks,
+        schedule: schedule
+      },
+      projectMeta: {
+          id: planDoc.id, // Return ID so we can update it later
+          name: data.projectName,
+          notes: data.notes,
+          synced: true
+      }
+    };
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+        handleFirestoreError(e, OperationType.GET, `production_plans/${planId}`);
+    }
+    throw e;
+  }
 };
 
 /**
  * Deletes a plan from Firestore.
  */
 export const deletePlanFromCloud = async (planId: string) => {
-    const database = getDb();
-    await deleteDoc(doc(database, 'production_plans', planId));
+    try {
+        const database = getDb();
+        await deleteDoc(doc(database, 'production_plans', planId));
+    } catch (e) {
+        if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+            handleFirestoreError(e, OperationType.DELETE, `production_plans/${planId}`);
+        }
+        throw e;
+    }
 };

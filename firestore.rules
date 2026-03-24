@@ -1,0 +1,40 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: production_plans
+    // Document ID: {planId}
+    // Fields:
+    //   - id: string (required) - The unique identifier for the plan.
+    //   - name: string (required, < 100 chars) - The name of the plan.
+    //   - createdAt: timestamp (required) - The date the plan was created.
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    match /production_plans/{planId} {
+      allow read, write: if isAuthenticated();
+      
+      match /days/{dayId} {
+        allow read, write: if isAuthenticated();
+        
+        match /assignments/{assignmentId} {
+          allow read, write: if isAuthenticated();
+        }
+      }
+      
+      match /presence/{userId} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+  }
+}
