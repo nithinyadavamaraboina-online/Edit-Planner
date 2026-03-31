@@ -7,9 +7,9 @@ interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
   workers: Worker[];
-  setWorkers: React.Dispatch<React.SetStateAction<Worker[]>>;
+  onUpdateWorkers: (workers: Worker[]) => void;
   languages: string[];
-  setLanguages: React.Dispatch<React.SetStateAction<string[]>>;
+  onUpdateLanguages: (languages: string[]) => void;
   currentLanguage: string;
   onExportData?: () => void;
   onImportData?: (data: any) => void;
@@ -20,9 +20,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
   onClose,
   workers,
-  setWorkers,
+  onUpdateWorkers,
   languages,
-  setLanguages,
+  onUpdateLanguages,
   currentLanguage,
   onExportData,
   onImportData,
@@ -72,36 +72,36 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         joiningDate: newWorkerJoiningDate || '2026-02-01'
     };
 
-    setWorkers(prev => [...prev, newWorker]);
+    onUpdateWorkers([...workers, newWorker]);
     setNewWorkerName('');
     setNewWorkerJoiningDate('');
   };
 
   const deleteWorker = (workerId: string) => {
     if (window.confirm("Are you sure you want to remove this team member?")) {
-      setWorkers(prev => prev.filter(w => w.id !== workerId));
+      onUpdateWorkers(workers.filter(w => w.id !== workerId));
     }
   };
 
   const handleWorkerLanguageChange = (workerId: string, lang: string) => {
-    setWorkers(prev => prev.map(w => w.id === workerId ? { ...w, language: lang } : w));
+    onUpdateWorkers(workers.map(w => w.id === workerId ? { ...w, language: lang } : w));
   };
 
   const handleWorkerRoleChange = (workerId: string, role: any) => {
-    setWorkers(prev => prev.map(w => w.id === workerId ? { ...w, role } : w));
+    onUpdateWorkers(workers.map(w => w.id === workerId ? { ...w, role } : w));
   };
 
   // --- LANGUAGE LOGIC ---
   const handleAddLanguage = () => {
     if (newLang && !languages.includes(newLang)) {
-      setLanguages(prev => [...prev, newLang]);
+      onUpdateLanguages([...languages, newLang]);
       setNewLang('');
     }
   };
 
   const deleteLanguage = (lang: string) => {
     if (window.confirm(`Delete language "${lang}"?`)) {
-      setLanguages(prev => prev.filter(l => l !== lang));
+      onUpdateLanguages(languages.filter(l => l !== lang));
     }
   };
 
@@ -297,7 +297,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                                     const updatedWorkers = workers.map(w => 
                                                         w.id === worker.id ? { ...w, joiningDate: e.target.value } : w
                                                     );
-                                                    setWorkers(updatedWorkers);
+                                                    onUpdateWorkers(updatedWorkers);
                                                 }}
                                                 className="p-1 border border-slate-200 rounded text-xs font-bold bg-white focus:ring-1 focus:ring-purple-500 outline-none text-slate-700 cursor-pointer w-full max-w-[120px]"
                                             />

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ProductionPlan, Batch, Worker, Workload, DayPlan, TaskAssignment, Leave } from './types';
 import AdminPage from './components/AdminPage';
 import LeaveManagement from './components/LeaveManagement';
-import { loadPlanFromCloud, subscribeToPlan, onAuthChange, savePlanToCloud, saveDayToCloud, saveAssignmentToCloud, deleteAssignmentFromCloud } from './services/firestoreService';
+import { loadPlanFromCloud, subscribeToPlan, onAuthChange, savePlanToCloud, saveDayToCloud, saveAssignmentToCloud, deleteAssignmentFromCloud, updateWorkersInCloud, updatePlanInCloud } from './services/firestoreService';
 import { Loader2, LayoutDashboard, Calendar, Globe, Moon, Sun, Layers } from 'lucide-react';
 import { User as FirebaseUser } from 'firebase/auth';
 
@@ -24,6 +24,8 @@ const EditorsApp: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useState(true);
 
   const lastLocalUpdate = useRef<number>(0);
+  const pendingRemoteUpdate = useRef<any>(null);
+  const remoteUpdateTimer = useRef<NodeJS.Timeout | null>(null);
   const lastCloudSync = useRef<string>('');
   const isSyncing = useRef<boolean>(false);
   const planRef = useRef<ProductionPlan | null>(null);
@@ -85,31 +87,58 @@ const EditorsApp: React.FC = () => {
     loadData();
 
     const unsubscribe = subscribeToPlan(planId, (data) => {
-      if (data && Date.now() - lastLocalUpdate.current > 2000) {
-        const dataString = JSON.stringify({
-            workers: data.workers,
-            workload: data.workload,
-            batches: data.batches,
-            plan: data.plan,
-            languages: data.languages
-        });
-        
-        if (dataString !== lastCloudSync.current) {
-            isSyncing.current = true;
-            if (data.plan) setPlan(data.plan);
-            if (data.batches) setBatches(data.batches);
-            if (data.workers) setWorkers(data.workers);
-            if (data.workload) setWorkload(data.workload);
-            if (data.languages && data.languages.length > 0) {
-              setLanguages(data.languages);
-              if (!data.languages.includes(currentLanguage)) {
-                setCurrentLanguage(data.languages[0]);
-              }
-            }
-            lastCloudSync.current = dataString;
-            setTimeout(() => { isSyncing.current = false; }, 100);
-        }
+      if (!data) return;
+
+      const dataString = JSON.stringify({
+          workers: data.workers,
+          workload: data.workload,
+          batches: data.batches,
+          plan: data.plan,
+          languages: data.languages
+      });
+      
+      if (dataString === lastCloudSync.current) {
+          return;
       }
+
+      const applyRemoteUpdate = (remoteData: any) => {
+          isSyncing.current = true;
+          lastCloudSync.current = JSON.stringify({
+              workers: remoteData.workers,
+              workload: remoteData.workload,
+              batches: remoteData.batches,
+              plan: remoteData.plan,
+              languages: remoteData.languages
+          });
+          
+          if (remoteData.plan) setPlan(remoteData.plan);
+          if (remoteData.batches) setBatches(remoteData.batches);
+          if (remoteData.workers) setWorkers(remoteData.workers);
+          if (remoteData.workload) setWorkload(remoteData.workload);
+          if (remoteData.languages && remoteData.languages.length > 0) {
+              setLanguages(remoteData.languages);
+              if (!remoteData.languages.includes(currentLanguage)) {
+                  setCurrentLanguage(remoteData.languages[0]);
+              }
+          }
+          
+          setTimeout(() => { isSyncing.current = false; }, 100);
+      };
+
+      const timeSinceLastLocal = Date.now() - lastLocalUpdate.current;
+      if (timeSinceLastLocal < 2000) {
+          pendingRemoteUpdate.current = data;
+          if (remoteUpdateTimer.current) clearTimeout(remoteUpdateTimer.current);
+          remoteUpdateTimer.current = setTimeout(() => {
+              if (pendingRemoteUpdate.current && Date.now() - lastLocalUpdate.current >= 2000) {
+                  applyRemoteUpdate(pendingRemoteUpdate.current);
+                  pendingRemoteUpdate.current = null;
+              }
+          }, 2000 - timeSinceLastLocal);
+          return;
+      }
+
+      applyRemoteUpdate(data);
     });
 
     return () => unsubscribe();
@@ -308,17 +337,8 @@ const EditorsApp: React.FC = () => {
               });
               lastCloudSync.current = dataString;
 
-              await savePlanToCloud(
-                  workload.projectName,
-                  '',
-                  updatedWorkers,
-                  workload,
-                  currentPlanToSave,
-                  batches,
-                  languages,
-                  planId,
-                  false
-              );
+              await updateWorkersInCloud(planId, updatedWorkers);
+              await updatePlanInCloud(planId, currentPlanToSave);
           } catch (e) {
               console.error("Error saving workers:", e);
               setError("Failed to save worker changes");

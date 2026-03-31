@@ -5,7 +5,6 @@ import { Shield, LayoutGrid, Clock, CheckCircle, Zap, Globe, Trophy, ArrowLeft }
 
 interface AdminPageProps {
   workers: Worker[];
-  setWorkers: React.Dispatch<React.SetStateAction<Worker[]>>;
   onBack: () => void;
   batches: Batch[];
   plan: ProductionPlan | null;

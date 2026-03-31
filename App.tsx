@@ -11,7 +11,7 @@ import LeaveManagement from './components/LeaveManagement';
 import PresenceList from './components/PresenceList';
 import AIManager from './components/AIManager';
 import { generateProductionPlan } from './services/geminiService';
-import { savePlanToCloud, loadPlanFromCloud, deletePlanFromCloud, getSavedPlans, subscribeToPlan, saveDayToCloud, updatePresence, subscribeToPresence, saveAssignmentToCloud, deleteAssignmentFromCloud, signInWithGoogle, signOutUser, onAuthChange, testConnection } from './services/firestoreService';
+import { savePlanToCloud, loadPlanFromCloud, deletePlanFromCloud, getSavedPlans, subscribeToPlan, saveDayToCloud, updatePresence, subscribeToPresence, saveAssignmentToCloud, deleteAssignmentFromCloud, signInWithGoogle, signOutUser, onAuthChange, testConnection, updateBatchesInCloud, updateWorkersInCloud, updatePlanInCloud, updateLanguagesInCloud } from './services/firestoreService';
 import { Play, RefreshCw, Loader2, CheckCircle, XCircle, TrendingUp, Calendar, X, CloudUpload, FolderCheck, Check, Upload, HardDrive, Trash2, FolderOpen, Brain, Zap, Clock, Rocket, LayoutDashboard, ListChecks, ArrowLeft, PenTool, ChevronRight, Plus, PieChart, Cloud, Layers, Globe, Shield, LogOut, UserCheck, Settings, Moon, Sun, Trophy } from 'lucide-react';
 import { User as FirebaseUser } from 'firebase/auth';
 
@@ -88,6 +88,8 @@ const App: React.FC = () => {
   const isSyncing = useRef(false);
   const lastCloudSync = useRef<string | null>(null); // Track last synced data string to avoid loops
   const lastLocalUpdate = useRef<number>(0); // Track last local update timestamp
+  const pendingRemoteUpdate = useRef<any>(null);
+  const remoteUpdateTimer = useRef<NodeJS.Timeout | null>(null);
   const hasApiKey = !!process.env.GEMINI_API_KEY;
 
   // Refs for stable access in event handlers
@@ -308,45 +310,69 @@ const App: React.FC = () => {
                       return; // No actual change
                   }
 
-                  console.log("Received remote update");
-                  isRemoteUpdate.current = true;
-                  isSyncing.current = true;
-                  lastCloudSync.current = dataString;
-                  
-                  if (data.workers && Array.isArray(data.workers)) {
-                      setWorkers(prev => JSON.stringify(prev) !== JSON.stringify(data.workers) ? data.workers : prev);
-                  }
-                  if (data.workload && typeof data.workload === 'object') {
-                      setWorkload(prev => JSON.stringify(prev) !== JSON.stringify(data.workload) ? data.workload : prev);
-                  }
-                  if (data.batches && Array.isArray(data.batches)) {
-                      const migrated = migrateBatches(data.batches);
-                      setBatches(prev => JSON.stringify(prev) !== JSON.stringify(migrated) ? migrated : prev);
-                  }
-                  if (data.plan && typeof data.plan === 'object') {
-                      setPlan(prev => JSON.stringify(prev) !== JSON.stringify(data.plan) ? data.plan : prev);
-                  }
-                  
-                  if (data.projectMeta && typeof data.projectMeta === 'object') {
-                      setProjectMeta(prev => {
-                          const metaString = JSON.stringify({ name: data.projectMeta.name, notes: data.projectMeta.notes });
-                          const prevString = JSON.stringify({ name: prev?.name, notes: prev?.notes });
-                          if (metaString === prevString && prev?.synced) return prev;
-                          return { ...prev, ...data.projectMeta, synced: true };
+                  const applyRemoteUpdate = (remoteData: any) => {
+                      console.log("Applying remote update");
+                      isRemoteUpdate.current = true;
+                      isSyncing.current = true;
+                      lastCloudSync.current = JSON.stringify({
+                          workers: remoteData.workers,
+                          workload: remoteData.workload,
+                          batches: remoteData.batches,
+                          plan: remoteData.plan,
+                          languages: remoteData.languages
                       });
+                      
+                      if (remoteData.workers && Array.isArray(remoteData.workers)) {
+                          setWorkers(prev => JSON.stringify(prev) !== JSON.stringify(remoteData.workers) ? remoteData.workers : prev);
+                      }
+                      if (remoteData.workload && typeof remoteData.workload === 'object') {
+                          setWorkload(prev => JSON.stringify(prev) !== JSON.stringify(remoteData.workload) ? remoteData.workload : prev);
+                      }
+                      if (remoteData.batches && Array.isArray(remoteData.batches)) {
+                          const migrated = migrateBatches(remoteData.batches);
+                          setBatches(prev => JSON.stringify(prev) !== JSON.stringify(migrated) ? migrated : prev);
+                      }
+                      if (remoteData.plan && typeof remoteData.plan === 'object') {
+                          setPlan(prev => JSON.stringify(prev) !== JSON.stringify(remoteData.plan) ? remoteData.plan : prev);
+                      }
+                      
+                      if (remoteData.projectMeta && typeof remoteData.projectMeta === 'object') {
+                          setProjectMeta(prev => {
+                              const metaString = JSON.stringify({ name: remoteData.projectMeta.name, notes: remoteData.projectMeta.notes });
+                              const prevString = JSON.stringify({ name: prev?.name, notes: prev?.notes });
+                              if (metaString === prevString && prev?.synced) return prev;
+                              return { ...prev, ...remoteData.projectMeta, synced: true };
+                          });
+                      }
+
+                      if (remoteData.languages && Array.isArray(remoteData.languages)) {
+                          setLanguages(prev => {
+                              const combined = Array.from(new Set([...DEFAULT_LANGUAGES, ...remoteData.languages]));
+                              return JSON.stringify(prev) !== JSON.stringify(combined) ? combined : prev;
+                          });
+                      }
+
+                      setTimeout(() => {
+                          isSyncing.current = false;
+                          isRemoteUpdate.current = false;
+                      }, 500);
+                  };
+
+                  const timeSinceLastLocal = Date.now() - lastLocalUpdate.current;
+                  if (timeSinceLastLocal < 2000) {
+                      console.log("Deferring remote update due to recent local changes");
+                      pendingRemoteUpdate.current = data;
+                      if (remoteUpdateTimer.current) clearTimeout(remoteUpdateTimer.current);
+                      remoteUpdateTimer.current = setTimeout(() => {
+                          if (pendingRemoteUpdate.current && Date.now() - lastLocalUpdate.current >= 2000) {
+                              applyRemoteUpdate(pendingRemoteUpdate.current);
+                              pendingRemoteUpdate.current = null;
+                          }
+                      }, 2000 - timeSinceLastLocal);
+                      return;
                   }
 
-                  if (data.languages && Array.isArray(data.languages)) {
-                      setLanguages(prev => {
-                          const combined = Array.from(new Set([...DEFAULT_LANGUAGES, ...data.languages]));
-                          return JSON.stringify(prev) !== JSON.stringify(combined) ? combined : prev;
-                      });
-                  }
-
-                  setTimeout(() => {
-                      isSyncing.current = false;
-                      isRemoteUpdate.current = false;
-                  }, 500);
+                  applyRemoteUpdate(data);
               } catch (err) {
                   console.error("Error processing remote update:", err);
               }
@@ -545,8 +571,6 @@ const App: React.FC = () => {
             ...b, 
             ...batchData 
         } : b);
-        setBatches(finalBatches);
-        lastLocalUpdate.current = Date.now();
       } else {
         // Create Mode
         const newBatch: Batch = {
@@ -557,14 +581,15 @@ const App: React.FC = () => {
             language: currentUser.language // Assign current view language
         };
         finalBatches = [...batches, newBatch];
-        setBatches(finalBatches);
-        lastLocalUpdate.current = Date.now();
       }
       setShowBatchModal(false);
       setEditingBatch(null);
 
-      if (!isSyncing.current) {
-          await autoSaveToCloud({ batches: finalBatches });
+      if (projectMeta?.id) {
+          await updateBatchesInCloud(projectMeta.id, finalBatches);
+      } else {
+          setBatches(finalBatches);
+          lastLocalUpdate.current = Date.now();
       }
   };
   
@@ -575,8 +600,6 @@ const App: React.FC = () => {
 
   const handleDeleteBatch = async (batchId: string) => {
       const newBatches = (batches || []).filter(b => b.id !== batchId);
-      setBatches(newBatches);
-      lastLocalUpdate.current = Date.now();
       
       let newPlan = plan;
       if (plan) {
@@ -589,19 +612,21 @@ const App: React.FC = () => {
               )
           }));
           newPlan = { ...plan, schedule: newSchedule };
-          setPlan(newPlan);
       }
 
-      if (!isSyncing.current) {
-          await autoSaveToCloud({ batches: newBatches, plan: newPlan });
+      if (projectMeta?.id) {
+          await updateBatchesInCloud(projectMeta.id, newBatches);
+          if (newPlan) {
+              await updatePlanInCloud(projectMeta.id, newPlan);
+          }
+      } else {
+          setBatches(newBatches);
+          if (newPlan) setPlan(newPlan);
+          lastLocalUpdate.current = Date.now();
       }
   };
 
   const handleWorkerUpdate = async (updatedWorkers: Worker[], basePlan?: ProductionPlan) => {
-      setWorkers(updatedWorkers);
-      lastLocalUpdate.current = Date.now();
-      
-      // Use REF or passed basePlan to get latest plan to avoid stale closures
       const currentPlan = basePlan || planRef.current;
       let currentPlanToSave = currentPlan;
 
@@ -630,7 +655,6 @@ const App: React.FC = () => {
                   newLeavesState[w.id] = indices;
               }
           });
-          setLeaves(newLeavesState);
 
           // 2. Update Plan Schedule
           const newSchedule = currentPlan.schedule.map(day => {
@@ -665,34 +689,24 @@ const App: React.FC = () => {
           });
 
           currentPlanToSave = { ...currentPlan, schedule: newSchedule };
-          setPlan(currentPlanToSave);
+          
+          if (!projectMeta?.id) {
+              setLeaves(newLeavesState);
+              setPlan(currentPlanToSave);
+          }
+      }
+      
+      if (!projectMeta?.id) {
+          setWorkers(updatedWorkers);
+          lastLocalUpdate.current = Date.now();
       }
       
       // Trigger cloud save if we have a plan ID
-      if (projectMeta?.id && currentPlanToSave && !isSyncing.current) {
+      if (projectMeta?.id && currentPlanToSave) {
           setCloudSaving(true);
           try {
-              // Update lastCloudSync to prevent echo
-              const dataString = JSON.stringify({
-                  workers: updatedWorkers,
-                  workload,
-                  batches,
-                  plan: currentPlanToSave,
-                  languages
-              });
-              lastCloudSync.current = dataString;
-
-              await savePlanToCloud(
-                  projectMeta.name,
-                  projectMeta.notes,
-                  updatedWorkers, // Save updated workers
-                  workload,
-                  currentPlanToSave,
-                  batches,
-                  languages,
-                  projectMeta.id,
-                  false // Save schedule too
-              );
+              await updateWorkersInCloud(projectMeta.id, updatedWorkers);
+              await updatePlanInCloud(projectMeta.id, currentPlanToSave);
               setSaveStatus('saved');
               setTimeout(() => setSaveStatus('idle'), 2000);
           } catch (e) {
@@ -913,6 +927,23 @@ const App: React.FC = () => {
       }
   };
 
+  const handleLanguageUpdate = async (updatedLanguages: string[]) => {
+      if (projectMeta?.id) {
+          try {
+              setSaveStatus('saving');
+              await updateLanguagesInCloud(projectMeta.id, updatedLanguages);
+              setSaveStatus('saved');
+              setTimeout(() => setSaveStatus('idle'), 2000);
+          } catch (e) {
+              console.error("Error saving languages:", e);
+              setSaveStatus('idle');
+          }
+      } else {
+          setLanguages(updatedLanguages);
+          lastLocalUpdate.current = Date.now();
+      }
+  };
+
   const toggleAdminMode = () => {
       if (currentView === 'admin') setCurrentView('daily');
       else setCurrentView('admin');
@@ -970,9 +1001,9 @@ const App: React.FC = () => {
         isOpen={showSettingsModal}
         onClose={() => setShowSettingsModal(false)}
         workers={workers}
-        setWorkers={setWorkers}
+        onUpdateWorkers={handleWorkerUpdate}
         languages={languages}
-        setLanguages={setLanguages}
+        onUpdateLanguages={handleLanguageUpdate}
         currentLanguage={currentUser.language}
         onExportData={handleExportData}
         onImportData={handleImportData}
@@ -1137,11 +1168,7 @@ const App: React.FC = () => {
         {currentView === 'admin' && (
             <AdminPage 
                 workers={workers} 
-                setWorkers={setWorkers} 
-                languages={languages} 
-                setLanguages={setLanguages}
                 onBack={() => setCurrentView('daily')} 
-                currentLanguage={currentUser.language}
                 batches={globalBatchesProgress} // Use Global including progress
                 plan={plan}
                 projectMeta={projectMeta}

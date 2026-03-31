@@ -452,6 +452,81 @@ export const subscribeToPresence = (planId: string, onUpdate: (users: any[]) => 
     });
 };
 
+export const updateBatchesInCloud = async (planId: string, batches: Batch[]) => {
+    try {
+        const database = getDb();
+        const planRef = doc(database, 'production_plans', planId);
+        await updateDoc(planRef, { 
+            batches: sanitizeForFirestore(batches), 
+            updatedAt: serverTimestamp() 
+        });
+    } catch (e) {
+        if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+            handleFirestoreError(e, OperationType.UPDATE, `production_plans/${planId}`);
+        }
+        console.error("Error updating batches:", e);
+        throw e;
+    }
+};
+
+export const updateWorkersInCloud = async (planId: string, workers: Worker[]) => {
+    try {
+        const database = getDb();
+        const planRef = doc(database, 'production_plans', planId);
+        await updateDoc(planRef, { 
+            workers: sanitizeForFirestore(workers), 
+            updatedAt: serverTimestamp() 
+        });
+    } catch (e) {
+        if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+            handleFirestoreError(e, OperationType.UPDATE, `production_plans/${planId}`);
+        }
+        console.error("Error updating workers:", e);
+        throw e;
+    }
+};
+
+export const updatePlanInCloud = async (planId: string, plan: ProductionPlan) => {
+    try {
+        const database = getDb();
+        const planRef = doc(database, 'production_plans', planId);
+        await updateDoc(planRef, { 
+            summary: sanitizeForFirestore(plan.summary),
+            bottlenecks: sanitizeForFirestore(plan.bottlenecks),
+            constraints: sanitizeForFirestore(plan.constraints),
+            risks: sanitizeForFirestore(plan.risks),
+            updatedAt: serverTimestamp() 
+        });
+        
+        if (plan.schedule) {
+            await Promise.all(plan.schedule.map(day => saveDayToCloud(planId, day)));
+        }
+    } catch (e) {
+        if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+            handleFirestoreError(e, OperationType.UPDATE, `production_plans/${planId}`);
+        }
+        console.error("Error updating plan:", e);
+        throw e;
+    }
+};
+
+export const updateLanguagesInCloud = async (planId: string, languages: string[]) => {
+    try {
+        const database = getDb();
+        const planRef = doc(database, 'production_plans', planId);
+        await updateDoc(planRef, { 
+            languages: sanitizeForFirestore(languages),
+            updatedAt: serverTimestamp() 
+        });
+    } catch (e) {
+        if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+            handleFirestoreError(e, OperationType.UPDATE, `production_plans/${planId}`);
+        }
+        console.error("Error updating languages:", e);
+        throw e;
+    }
+};
+
 /**
  * Saves the current production plan to Firestore.
  * If planId is provided, it updates the existing document. Otherwise, creates a new one.
