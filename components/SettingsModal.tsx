@@ -13,7 +13,6 @@ interface SettingsModalProps {
   currentLanguage: string;
   onExportData?: () => void;
   onImportData?: (data: any) => void;
-  onRestoreLocalBackup?: () => void;
   onError?: (msg: string) => void;
 }
 
@@ -27,7 +26,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   currentLanguage,
   onExportData,
   onImportData,
-  onRestoreLocalBackup,
   onError
 }) => {
   const [activeTab, setActiveTab] = useState<'team' | 'languages' | 'data'>('team');
@@ -422,25 +420,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                     if (fileInputRef.current) fileInputRef.current.value = '';
                                 }}
                             />
-                        </div>
-                        
-                        <div className="mt-6 pt-6 border-t border-slate-100">
-                            <h4 className="text-sm font-bold text-slate-800 mb-2">Emergency Recovery</h4>
-                            <p className="text-xs text-slate-500 mb-4">
-                                The app automatically saves a rolling backup of your last active plan to your browser's local storage. Use this if your cloud sync fails or data is accidentally overwritten.
-                            </p>
-                            <button 
-                                onClick={() => {
-                                    if (onRestoreLocalBackup) {
-                                        onRestoreLocalBackup();
-                                        onClose();
-                                    }
-                                }}
-                                className="w-full flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 px-4 rounded-xl font-bold transition-all shadow-sm active:scale-95"
-                            >
-                                <RefreshCw size={18} />
-                                Restore Local Auto-Backup
-                            </button>
                         </div>
                     </div>
                 </div>

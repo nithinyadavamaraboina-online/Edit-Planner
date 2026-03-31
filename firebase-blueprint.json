@@ -10,12 +10,29 @@
         "createdAt": { "type": "string", "format": "date-time", "description": "The date the plan was created." }
       },
       "required": ["id", "name", "createdAt"]
+    },
+    "LearningRule": {
+      "title": "LearningRule",
+      "description": "An AI learning rule.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The unique identifier for the rule." },
+        "rule": { "type": "string", "description": "The rule text." },
+        "timestamp": { "type": "number", "description": "The timestamp of the rule." },
+        "active": { "type": "boolean", "description": "Whether the rule is active." },
+        "userId": { "type": "string", "description": "The user ID of the rule creator." }
+      },
+      "required": ["id", "rule", "timestamp", "active", "userId"]
     }
   },
   "firestore": {
     "/production_plans/{planId}": {
       "schema": { "$ref": "ProductionPlan" },
       "description": "Production plans collection."
+    },
+    "/learning_rules/{ruleId}": {
+      "schema": { "$ref": "LearningRule" },
+      "description": "Learning rules collection."
     }
   }
 }

@@ -7,7 +7,7 @@ interface PlanDashboardProps {
   plan: ProductionPlan;
   workload: Workload;
   projectStatus?: 'planning' | 'active'; 
-  onUpdatePlan: (plan: ProductionPlan) => void;
+  onUpdatePlan: (plan: ProductionPlan, saveToCloud?: boolean, dayToSave?: number, assignmentId?: string, isDeletion?: boolean) => void;
   onToggleLeave?: (workerId: string, day: number) => void;
   onClose?: () => void;
   onRePlan?: () => void;
@@ -100,7 +100,8 @@ const PlanDashboard: React.FC<PlanDashboardProps> = ({
           totalEdits: newPlan.schedule.reduce((sum, d) => sum + d.dailyTotalEdit, 0)
       };
 
-      onUpdatePlan(newPlan);
+      const updatedAssignment = newDayPlan.assignments[taskIndex];
+      onUpdatePlan(newPlan, true, dayIndex, updatedAssignment.id || updatedAssignment.workerId);
   };
 
   const toggleDayLock = (dayIndex: number) => {
@@ -108,7 +109,7 @@ const PlanDashboard: React.FC<PlanDashboardProps> = ({
     const dayPlanIndex = newPlan.schedule.findIndex(d => d.day === dayIndex);
     if(dayPlanIndex !== -1) {
        newPlan.schedule[dayPlanIndex].locked = !newPlan.schedule[dayPlanIndex].locked;
-       onUpdatePlan(newPlan);
+       onUpdatePlan(newPlan, true, dayIndex);
     }
   };
 

@@ -11,11 +11,10 @@ import LeaveManagement from './components/LeaveManagement';
 import PresenceList from './components/PresenceList';
 import AIManager from './components/AIManager';
 import { generateProductionPlan } from './services/geminiService';
-import { savePlanToCloud, loadPlanFromCloud, deletePlanFromCloud, getSavedPlans, subscribeToPlan, saveDayToCloud, updatePresence, subscribeToPresence, saveAssignmentToCloud, deleteAssignmentFromCloud, signInWithGoogle, signOutUser, onAuthChange } from './services/firestoreService';
+import { savePlanToCloud, loadPlanFromCloud, deletePlanFromCloud, getSavedPlans, subscribeToPlan, saveDayToCloud, updatePresence, subscribeToPresence, saveAssignmentToCloud, deleteAssignmentFromCloud, signInWithGoogle, signOutUser, onAuthChange, testConnection } from './services/firestoreService';
 import { Play, RefreshCw, Loader2, CheckCircle, XCircle, TrendingUp, Calendar, X, CloudUpload, FolderCheck, Check, Upload, HardDrive, Trash2, FolderOpen, Brain, Zap, Clock, Rocket, LayoutDashboard, ListChecks, ArrowLeft, PenTool, ChevronRight, Plus, PieChart, Cloud, Layers, Globe, Shield, LogOut, UserCheck, Settings, Moon, Sun, Trophy } from 'lucide-react';
 import { User as FirebaseUser } from 'firebase/auth';
 
-const STORAGE_KEY = 'wedo_production_planner_v3';
 const USER_EMAIL = 'nithin.yadav.amaraboina@gmail.com';
 
 // Added language: 'Telugu' to default workers
@@ -82,7 +81,6 @@ const App: React.FC = () => {
   
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'idle'>('idle');
-  const [conflictData, setConflictData] = useState<any>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   
   const isInitialMount = useRef(true);
@@ -213,37 +211,19 @@ const App: React.FC = () => {
 
   // Initial Load Logic
   useEffect(() => {
+    testConnection();
     if (authLoading) return;
 
     const initialize = async () => {
-      const savedData = localStorage.getItem(STORAGE_KEY);
-      let hasLocalData = false;
-      let localSynced = false;
-
-      if (savedData) {
+      // Load user preferences from local storage
+      const savedPrefs = localStorage.getItem('wedo_preferences');
+      if (savedPrefs) {
         try {
-          const parsed = JSON.parse(savedData);
+          const parsed = JSON.parse(savedPrefs);
           if (parsed.isDarkMode !== undefined) setIsDarkMode(parsed.isDarkMode);
           if (parsed.currentUser) setCurrentUser(parsed.currentUser);
-          
-          // Load other data from local storage as fallback
-          if (parsed.workers) setWorkers(parsed.workers);
-          if (parsed.workload) setWorkload(parsed.workload);
-          if (parsed.leaves) setLeaves(parsed.leaves);
-          if (parsed.batches) setBatches(migrateBatches(parsed.batches));
-          if (parsed.projectMeta) {
-              setProjectMeta(parsed.projectMeta);
-              localSynced = !!parsed.projectMeta.synced;
-          }
-          if (parsed.plan && parsed.plan.schedule && parsed.plan.schedule.length > 0) {
-            setPlan(parsed.plan);
-            setProjectStatus('active');
-            hasLocalData = true;
-          }
-          if (parsed.recentPlan) setRecentPlan(parsed.recentPlan);
-          
         } catch (e) {
-          console.error("Failed to load saved data from local", e);
+          console.error("Failed to load preferences", e);
         }
       }
 
@@ -255,20 +235,19 @@ const App: React.FC = () => {
 
       try {
         let cloudData = null;
-        const plans = await getSavedPlans();
-        if (plans && plans.length > 0) {
-            cloudData = await loadPlanFromCloud(plans[0].id);
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlProjectId = urlParams.get('id');
+
+        if (urlProjectId) {
+            cloudData = await loadPlanFromCloud(urlProjectId);
+        } else {
+            const plans = await getSavedPlans();
+            if (plans && plans.length > 0) {
+                cloudData = await loadPlanFromCloud(plans[0].id);
+            }
         }
 
         if (cloudData) {
-             if (hasLocalData && !localSynced) {
-                 // Conflict: Local data has unsaved changes, but cloud has data.
-                 // Show conflict modal instead of overwriting.
-                 setConflictData(cloudData);
-                 setLoading(false);
-                 return; // Stop initialization, wait for user resolution
-             }
-             
              // Migration for Cloud Data
              const migratedWorkers = (cloudData.workers || []).map((w: Worker) => ({ ...w, language: w.language || 'Telugu' }));
              const migratedBatches = (cloudData.batches || []).map((b: Batch) => ({ ...b, language: b.language || 'Telugu' }));
@@ -281,22 +260,24 @@ const App: React.FC = () => {
              setProjectStatus('active'); 
              setRecentPlan(null);
              
+             // Update URL to reflect the current project ID
+             if (cloudData.projectMeta?.id) {
+                 window.history.replaceState({}, '', '?id=' + cloudData.projectMeta.id);
+             }
+             
              // Load languages if available, otherwise default
              if (cloudData.languages && Array.isArray(cloudData.languages)) {
                  setLanguages(Array.from(new Set([...DEFAULT_LANGUAGES, ...cloudData.languages])));
              }
 
              setCurrentView('daily'); 
-        } else if (!hasLocalData) {
-             // Only call handleManualStart if we don't have local data
+        } else {
              handleManualStart();
         }
 
       } catch (e) {
         console.error("Error during initialization:", e);
-        if (!hasLocalData) {
-            handleManualStart();
-        }
+        handleManualStart();
       } finally {
         setLoading(false);
         setCloudSaving(false);
@@ -374,54 +355,18 @@ const App: React.FC = () => {
       }
   }, [projectStatus, projectMeta?.id]);
 
-  // Continuous Auto-Save
+  // Save User Preferences
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
-
-    setSaveStatus('saving');
-    const timer = setTimeout(() => {
-      try {
-        // Reduce local storage dependency: 
-        // If project is active, we only save metadata and user preferences.
-        // The actual plan data is managed by Firestore.
-        const baseData = { 
-          projectMeta, 
-          projectStatus, 
-          languages, 
-          isDarkMode, 
-          currentUser 
-        };
-
-        let dataToSave;
-        if (projectStatus === 'active' && projectMeta?.id) {
-          dataToSave = JSON.stringify(baseData);
-        } else {
-          dataToSave = JSON.stringify({ 
-            ...baseData, 
-            workers, workload, leaves, plan, recentPlan, batches 
-          });
-        }
-        
-        localStorage.setItem(STORAGE_KEY, dataToSave);
-        
-        // Rolling backup for active plans
-        if (projectStatus === 'active' && plan && plan.schedule && plan.schedule.length > 0) {
-            localStorage.setItem(STORAGE_KEY + '_backup', dataToSave);
-        }
-        
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus('idle'), 2000);
-      } catch (e) {
-        console.error("Auto-save failed", e);
-        setSaveStatus('idle');
-      }
-    }, 1000); // Increased debounce for local storage
-
-    return () => clearTimeout(timer);
-  }, [workers, workload, leaves, plan, recentPlan, projectMeta, projectStatus, batches, languages, isDarkMode, currentUser]);
+    try {
+      localStorage.setItem('wedo_preferences', JSON.stringify({ isDarkMode, currentUser }));
+    } catch (e) {
+      console.error("Failed to save preferences", e);
+    }
+  }, [isDarkMode, currentUser]);
 
   // Continuous Auto-Save to Cloud
   useEffect(() => {
@@ -491,15 +436,43 @@ const App: React.FC = () => {
     try {
       const generatedPlan = await generateProductionPlan(workers, workload, leaves, process.env.GEMINI_API_KEY);
       setPlan(generatedPlan);
-      setProjectStatus('planning'); 
+      setProjectStatus(projectMeta?.id ? 'active' : 'planning'); 
       setRecentPlan(null); 
       setCurrentView('daily');
       
       setProjectMeta(prev => ({
+        ...prev,
         name: workload.projectName,
         notes: prev?.notes || '',
         synced: false
       }));
+      
+      // If we already have a project ID, auto-save the newly generated plan to it
+      // so that other connected clients see the new plan immediately.
+      if (projectMeta?.id) {
+          const dataString = JSON.stringify({
+              workers,
+              workload,
+              batches,
+              plan: generatedPlan,
+              languages
+          });
+          lastCloudSync.current = dataString;
+          
+          savePlanToCloud(
+              workload.projectName, 
+              projectMeta?.notes || '', 
+              workers, 
+              workload, 
+              generatedPlan, 
+              batches, 
+              languages, 
+              projectMeta.id, 
+              false
+          ).then(() => {
+              setProjectMeta(prev => prev ? { ...prev, synced: true } : prev);
+          }).catch(e => console.error("Auto-save generated plan failed", e));
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to generate plan.');
     } finally {
@@ -515,14 +488,17 @@ const App: React.FC = () => {
           constraints: [],
           risks: []
       };
+      setWorkers(DEFAULT_WORKERS);
+      setWorkload(DEFAULT_WORKLOAD);
       setPlan(emptyPlan);
-      setProjectStatus('active');
+      setProjectStatus('planning');
       setRecentPlan(null);
       setProjectMeta(prev => ({
-          name: workload.projectName,
+          name: DEFAULT_WORKLOAD.projectName,
           notes: prev?.notes || '',
           synced: false
       }));
+      window.history.replaceState({}, '', window.location.pathname);
   };
 
   const autoSaveToCloud = async (overrides: { plan?: ProductionPlan | null, batches?: Batch[] } = {}) => {
@@ -783,6 +759,7 @@ const App: React.FC = () => {
           setProjectMeta({ id, name, notes, synced: true });
           setProjectStatus('active'); // Activate the project
           setShowSaveModal(false);
+          window.history.replaceState({}, '', '?id=' + id);
           
           // 3. Force auto-save to ensure consistency
           await autoSaveToCloud({ plan });
@@ -832,11 +809,18 @@ const App: React.FC = () => {
           if (data.leaves) setLeaves(data.leaves);
           if (data.languages) setLanguages(data.languages);
           if (data.projectMeta) setProjectMeta(data.projectMeta);
-          if (data.projectStatus) setProjectStatus(data.projectStatus);
           
-          // If there's an active project, we should probably sync it to the cloud immediately
+          // If there's a project ID, it's an active cloud project
+          if (data.projectMeta?.id) {
+              setProjectStatus('active');
+              window.history.replaceState({}, '', '?id=' + data.projectMeta.id);
+          } else if (data.projectStatus) {
+              setProjectStatus(data.projectStatus);
+          }
+          
+          // If there's a project, we should sync it to the cloud immediately
           // to ensure the cloud matches the imported local state.
-          if (data.projectStatus === 'active' && data.projectMeta?.id && data.plan) {
+          if (data.projectMeta?.id && data.plan) {
               setLoading(true);
               const dataString = JSON.stringify({
                   workers: data.workers || workers,
@@ -857,6 +841,7 @@ const App: React.FC = () => {
                   data.languages || languages, 
                   data.projectMeta.id
               );
+              
               setLoading(false);
           }
           
@@ -865,22 +850,6 @@ const App: React.FC = () => {
           console.error("Error importing data:", e);
           showToast("Failed to import data. The file might be corrupted.");
           setLoading(false);
-      }
-  };
-
-  const handleRestoreLocalBackup = () => {
-      const backupData = localStorage.getItem(STORAGE_KEY + '_backup');
-      if (!backupData) {
-          showToast("No local backup found.");
-          return;
-      }
-      
-      try {
-          const parsed = JSON.parse(backupData);
-          handleImportData(parsed);
-      } catch (e) {
-          console.error("Failed to parse local backup", e);
-          showToast("Local backup is corrupted.");
       }
   };
 
@@ -980,61 +949,6 @@ const App: React.FC = () => {
     );
   }
 
-  if (conflictData) {
-      return (
-          <div className={isDarkMode ? "dark" : ""}>
-              <div className="h-screen w-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 p-4">
-                  <div className="max-w-lg w-full p-8 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800">
-                      <div className="flex items-center gap-3 mb-6 text-amber-600 dark:text-amber-500">
-                          <RefreshCw className="w-8 h-8" />
-                          <h2 className="text-2xl font-bold">Sync Conflict Detected</h2>
-                      </div>
-                      <p className="text-slate-600 dark:text-slate-300 mb-6 leading-relaxed">
-                          We found a saved plan in the cloud, but you also have unsaved local data on this device. 
-                          <br/><br/>
-                          <strong>If you are on the published site</strong> and want to keep your real data, choose <strong>"Keep Local Data"</strong>.
-                      </p>
-                      <div className="flex flex-col gap-4">
-                          <button 
-                              onClick={() => {
-                                  // Keep local data, force sync to cloud
-                                  setProjectMeta(prev => ({ ...prev, synced: false }));
-                                  setConflictData(null);
-                                  setLoading(false);
-                              }}
-                              className="w-full py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold transition-all shadow-md"
-                          >
-                              Keep Local Data (Overwrite Cloud)
-                          </button>
-                          <button 
-                              onClick={() => {
-                                  // Load cloud data
-                                  const migratedWorkers = (conflictData.workers || []).map((w: Worker) => ({ ...w, language: w.language || 'Telugu' }));
-                                  setWorkers(migratedWorkers);
-                                  setWorkload(conflictData.workload);
-                                  setPlan(conflictData.plan);
-                                  if (conflictData.batches) setBatches(migrateBatches(conflictData.batches));
-                                  setProjectMeta(conflictData.projectMeta);
-                                  setProjectStatus('active'); 
-                                  setRecentPlan(null);
-                                  if (conflictData.languages && Array.isArray(conflictData.languages)) {
-                                      setLanguages(Array.from(new Set([...DEFAULT_LANGUAGES, ...conflictData.languages])));
-                                  }
-                                  setCurrentView('daily');
-                                  setConflictData(null);
-                                  setLoading(false);
-                              }}
-                              className="w-full py-3 px-4 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-bold transition-all"
-                          >
-                              Load Cloud Data (Overwrite Local)
-                          </button>
-                      </div>
-                  </div>
-              </div>
-          </div>
-      );
-  }
-
   return (
     <div className={isDarkMode ? "dark" : ""}>
     <div className="h-screen w-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col overflow-hidden font-sans transition-colors duration-300">
@@ -1062,7 +976,6 @@ const App: React.FC = () => {
         currentLanguage={currentUser.language}
         onExportData={handleExportData}
         onImportData={handleImportData}
-        onRestoreLocalBackup={handleRestoreLocalBackup}
         onError={showToast}
       />
       

@@ -1,8 +1,20 @@
 
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getFirestore, collection, addDoc, doc, writeBatch, serverTimestamp, Firestore, query, orderBy, getDocs, getDoc, deleteDoc, setDoc, onSnapshot, updateDoc, deleteField } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, doc, writeBatch, serverTimestamp, Firestore, query, orderBy, getDocs, getDoc, deleteDoc, setDoc, onSnapshot, updateDoc, deleteField, getDocFromServer } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, Auth, User as FirebaseUser } from 'firebase/auth';
 import { Worker, Workload, ProductionPlan, Batch, DayPlan, TaskAssignment } from '../types';
+
+export const testConnection = async () => {
+  try {
+    const database = getDb();
+    await getDocFromServer(doc(database, 'test', 'connection'));
+    console.log("Firestore connection successful");
+  } catch (error) {
+    if(error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration. ");
+    }
+  }
+};
 
 export enum OperationType {
   CREATE = 'create',
@@ -91,7 +103,7 @@ export const subscribeToPlan = (planId: string, onUpdate: (data: any) => void) =
         const baseDay = (mainData.plan.schedule || []).find((d: any) => d.day === dayNum) || { day: dayNum, assignments: [] };
         
         // Override with granular day data if available
-        const dayPlan = daysData[dayNum] ? { ...daysData[dayNum] } : { ...baseDay };
+        const dayPlan = daysData[dayNum] ? { ...baseDay, ...daysData[dayNum] } : { ...baseDay };
         
         // If we have granular assignments for this day, use them
         // CRITICAL FIX: We must merge granular assignments with existing ones, not just replace
@@ -101,6 +113,10 @@ export const subscribeToPlan = (planId: string, onUpdate: (data: any) => void) =
         } else if (!dayPlan.assignments) {
             dayPlan.assignments = [];
         }
+        
+        // Recalculate daily totals to ensure they are always accurate
+        dayPlan.dailyTotalGen = dayPlan.assignments.reduce((sum: number, t: any) => sum + (t.generations || 0), 0);
+        dayPlan.dailyTotalEdit = dayPlan.assignments.reduce((sum: number, t: any) => sum + (t.edits || 0), 0);
         
         return dayPlan;
     }).sort((a, b) => a.day - b.day);
@@ -318,15 +334,29 @@ export const saveDayToCloud = async (planId: string, dayPlan: DayPlan) => {
         const { assignments, ...dayMeta } = dayPlan;
         await setDoc(dayDocRef, sanitizeForFirestore(dayMeta), { merge: true });
 
-        // Save assignments granularly
+        // Save assignments granularly and delete old ones
+        const assignmentsColRef = collection(dayDocRef, 'assignments');
+        const existingAssignmentsSnapshot = await getDocs(assignmentsColRef);
+        
+        const batch = writeBatch(database);
+        
+        // Delete assignments that are no longer in the new plan
+        const newAssignmentIds = new Set((assignments || []).map(t => t.id || t.workerId));
+        existingAssignmentsSnapshot.forEach(doc => {
+            if (!newAssignmentIds.has(doc.id)) {
+                batch.delete(doc.ref);
+            }
+        });
+
+        // Set new/updated assignments
         if (assignments && assignments.length > 0) {
-            const batch = writeBatch(database);
             assignments.forEach(task => {
                 const taskRef = doc(dayDocRef, 'assignments', task.id || task.workerId);
                 batch.set(taskRef, sanitizeForFirestore(task), { merge: true });
             });
-            await batch.commit();
         }
+        
+        await batch.commit();
     } catch (e) {
         if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
             handleFirestoreError(e, OperationType.UPDATE, `production_plans/${planId}/days/${dayPlan.day}`);
@@ -342,7 +372,11 @@ export const saveDayToCloud = async (planId: string, dayPlan: DayPlan) => {
 export const saveAssignmentToCloud = async (planId: string, dayNum: number, assignment: TaskAssignment) => {
     try {
         const database = getDb();
-        const taskRef = doc(database, 'production_plans', planId, 'days', dayNum.toString(), 'assignments', assignment.id || assignment.workerId);
+        // Ensure the day document exists so other clients subscribe to its assignments subcollection
+        const dayRef = doc(database, 'production_plans', planId, 'days', dayNum.toString());
+        await setDoc(dayRef, { day: dayNum }, { merge: true });
+        
+        const taskRef = doc(dayRef, 'assignments', assignment.id || assignment.workerId);
         await setDoc(taskRef, sanitizeForFirestore(assignment), { merge: true });
     } catch (e) {
         if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
@@ -359,7 +393,11 @@ export const saveAssignmentToCloud = async (planId: string, dayNum: number, assi
 export const deleteAssignmentFromCloud = async (planId: string, dayNum: number, assignmentId: string) => {
     try {
         const database = getDb();
-        const taskRef = doc(database, 'production_plans', planId, 'days', dayNum.toString(), 'assignments', assignmentId);
+        // Ensure the day document exists so other clients subscribe to its assignments subcollection
+        const dayRef = doc(database, 'production_plans', planId, 'days', dayNum.toString());
+        await setDoc(dayRef, { day: dayNum }, { merge: true });
+        
+        const taskRef = doc(dayRef, 'assignments', assignmentId);
         await deleteDoc(taskRef);
     } catch (e) {
         if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
@@ -473,13 +511,25 @@ export const savePlanToCloud = async (
 
     // Also save all days to subcollection for granular multi-user support
     // only if not skipping schedule or if it's a new plan
-    if (finalPlanId && plan.schedule.length > 0 && !skipSchedule) {
-        const batch = writeBatch(database);
-        plan.schedule.forEach(day => {
-            const dayDocRef = doc(database, 'production_plans', finalPlanId!, 'days', day.day.toString());
-            batch.set(dayDocRef, sanitizeForFirestore(day), { merge: true });
+    if (finalPlanId && plan.schedule && !skipSchedule) {
+        // Delete old days that are no longer in the schedule
+        const daysColRef = collection(database, 'production_plans', finalPlanId, 'days');
+        const existingDaysSnapshot = await getDocs(daysColRef);
+        const newDayNumbers = new Set(plan.schedule.map(d => d.day.toString()));
+        
+        const deletePromises: Promise<void>[] = [];
+        existingDaysSnapshot.forEach(doc => {
+            if (!newDayNumbers.has(doc.id)) {
+                // We can't easily delete subcollections in a batch, so we just delete the day document.
+                // Note: In a real production app, you'd want a Cloud Function to recursively delete subcollections,
+                // but for this app, deleting the day document is enough to hide it from the UI.
+                deletePromises.push(deleteDoc(doc.ref));
+            }
         });
-        await batch.commit();
+        await Promise.all(deletePromises);
+
+        // Run these sequentially to avoid overwhelming Firestore, or use Promise.all
+        await Promise.all(plan.schedule.map(day => saveDayToCloud(finalPlanId!, day)));
     }
 
     return finalPlanId!;
