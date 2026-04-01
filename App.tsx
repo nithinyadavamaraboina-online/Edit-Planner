@@ -585,11 +585,19 @@ const App: React.FC = () => {
       setShowBatchModal(false);
       setEditingBatch(null);
 
+      setBatches(finalBatches);
+      lastLocalUpdate.current = Date.now();
+
       if (projectMeta?.id) {
+          const dataString = JSON.stringify({
+              workers,
+              workload,
+              batches: finalBatches,
+              plan,
+              languages
+          });
+          lastCloudSync.current = dataString;
           await updateBatchesInCloud(projectMeta.id, finalBatches);
-      } else {
-          setBatches(finalBatches);
-          lastLocalUpdate.current = Date.now();
       }
   };
   
@@ -614,15 +622,24 @@ const App: React.FC = () => {
           newPlan = { ...plan, schedule: newSchedule };
       }
 
+      setBatches(newBatches);
+      if (newPlan) setPlan(newPlan);
+      lastLocalUpdate.current = Date.now();
+
       if (projectMeta?.id) {
+          const dataString = JSON.stringify({
+              workers,
+              workload,
+              batches: newBatches,
+              plan: newPlan || plan,
+              languages
+          });
+          lastCloudSync.current = dataString;
+
           await updateBatchesInCloud(projectMeta.id, newBatches);
           if (newPlan) {
               await updatePlanInCloud(projectMeta.id, newPlan);
           }
-      } else {
-          setBatches(newBatches);
-          if (newPlan) setPlan(newPlan);
-          lastLocalUpdate.current = Date.now();
       }
   };
 
@@ -690,21 +707,26 @@ const App: React.FC = () => {
 
           currentPlanToSave = { ...currentPlan, schedule: newSchedule };
           
-          if (!projectMeta?.id) {
-              setLeaves(newLeavesState);
-              setPlan(currentPlanToSave);
-          }
+          setLeaves(newLeavesState);
+          setPlan(currentPlanToSave);
       }
       
-      if (!projectMeta?.id) {
-          setWorkers(updatedWorkers);
-          lastLocalUpdate.current = Date.now();
-      }
+      setWorkers(updatedWorkers);
+      lastLocalUpdate.current = Date.now();
       
       // Trigger cloud save if we have a plan ID
       if (projectMeta?.id && currentPlanToSave) {
           setCloudSaving(true);
           try {
+              const dataString = JSON.stringify({
+                  workers: updatedWorkers,
+                  workload,
+                  batches,
+                  plan: currentPlanToSave,
+                  languages
+              });
+              lastCloudSync.current = dataString;
+
               await updateWorkersInCloud(projectMeta.id, updatedWorkers);
               await updatePlanInCloud(projectMeta.id, currentPlanToSave);
               setSaveStatus('saved');
@@ -715,8 +737,31 @@ const App: React.FC = () => {
           } finally {
               setCloudSaving(false);
           }
+      } else if (projectMeta?.id) {
+          setCloudSaving(true);
+          try {
+              const dataString = JSON.stringify({
+                  workers: updatedWorkers,
+                  workload,
+                  batches,
+                  plan,
+                  languages
+              });
+              lastCloudSync.current = dataString;
+
+              await updateWorkersInCloud(projectMeta.id, updatedWorkers);
+              setSaveStatus('saved');
+              setTimeout(() => setSaveStatus('idle'), 2000);
+          } catch (e) {
+              console.error("Error saving workers:", e);
+              setError("Failed to save worker changes");
+          } finally {
+              setCloudSaving(false);
+          }
       }
   };
+
+  const planMetaSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const handlePlanUpdate = (newPlan: ProductionPlan, saveToCloud: boolean = false, dayToSave?: number, assignmentId?: string, isDeletion: boolean = false) => {
       setPlan(newPlan);
@@ -732,22 +777,33 @@ const App: React.FC = () => {
       });
       lastCloudSync.current = dataString;
       
-      // If granular day update is requested, save it immediately to prevent multi-user data loss
-      if (saveToCloud && projectMeta?.id && dayToSave !== undefined && !isSyncing.current) {
-          const dayPlan = newPlan.schedule.find(d => d.day === dayToSave);
-          if (dayPlan) {
-              if (assignmentId) {
-                  if (isDeletion) {
-                      deleteAssignmentFromCloud(projectMeta.id, dayToSave, assignmentId).catch(e => console.error("Granular delete failed", e));
-                  } else {
-                      const assignment = dayPlan.assignments.find(a => (a.id || a.workerId) === assignmentId);
-                      if (assignment) {
-                          saveAssignmentToCloud(projectMeta.id, dayToSave, assignment).catch(e => console.error("Granular assignment save failed", e));
+      if (projectMeta?.id && !isSyncing.current) {
+          // If granular day update is requested, save it immediately
+          if (saveToCloud && dayToSave !== undefined) {
+              const dayPlan = newPlan.schedule.find(d => d.day === dayToSave);
+              if (dayPlan) {
+                  if (assignmentId) {
+                      if (isDeletion) {
+                          deleteAssignmentFromCloud(projectMeta.id, dayToSave, assignmentId).catch(e => console.error("Granular delete failed", e));
+                      } else {
+                          const assignment = dayPlan.assignments.find(a => (a.id || a.workerId) === assignmentId);
+                          if (assignment) {
+                              saveAssignmentToCloud(projectMeta.id, dayToSave, assignment).catch(e => console.error("Granular assignment save failed", e));
+                          }
                       }
+                  } else {
+                      saveDayToCloud(projectMeta.id, dayPlan).catch(e => console.error("Granular day save failed", e));
                   }
-              } else {
-                  saveDayToCloud(projectMeta.id, dayPlan).catch(e => console.error("Granular day save failed", e));
               }
+          } else if (!saveToCloud) {
+              // If saveToCloud is false, it's likely a metadata update (summary, bottlenecks, etc.)
+              // Debounce the save to prevent spamming Firestore
+              if (planMetaSaveTimeoutRef.current) {
+                  clearTimeout(planMetaSaveTimeoutRef.current);
+              }
+              planMetaSaveTimeoutRef.current = setTimeout(() => {
+                  updatePlanInCloud(projectMeta.id, newPlan, true).catch(e => console.error("Plan meta save failed", e));
+              }, 2000);
           }
       }
   };
@@ -816,50 +872,68 @@ const App: React.FC = () => {
 
   const handleImportData = async (data: any) => {
       try {
+          const currentLiveId = projectMeta?.id;
+          const targetId = currentLiveId || data.projectMeta?.id;
+          
           if (data.workers) setWorkers(data.workers);
           if (data.workload) setWorkload(data.workload);
           if (data.batches) setBatches(migrateBatches(data.batches));
           if (data.plan) setPlan(data.plan);
           if (data.leaves) setLeaves(data.leaves);
           if (data.languages) setLanguages(data.languages);
-          if (data.projectMeta) setProjectMeta(data.projectMeta);
           
-          // If there's a project ID, it's an active cloud project
-          if (data.projectMeta?.id) {
+          const newMeta = {
+              ...(data.projectMeta || projectMeta || {}),
+              id: targetId,
+              name: data.projectMeta?.name || projectMeta?.name || workload.projectName,
+              synced: true
+          };
+          setProjectMeta(newMeta);
+          
+          if (targetId) {
               setProjectStatus('active');
-              window.history.replaceState({}, '', '?id=' + data.projectMeta.id);
+              if (targetId !== currentLiveId) {
+                  window.history.replaceState({}, '', '?id=' + targetId);
+              }
           } else if (data.projectStatus) {
               setProjectStatus(data.projectStatus);
           }
           
-          // If there's a project, we should sync it to the cloud immediately
-          // to ensure the cloud matches the imported local state.
-          if (data.projectMeta?.id && data.plan) {
+          if (targetId && data.plan) {
               setLoading(true);
+              
+              const importedWorkers = data.workers || workers;
+              const importedWorkload = data.workload || workload;
+              const importedBatches = data.batches ? migrateBatches(data.batches) : batches;
+              const importedLanguages = data.languages || languages;
+              
               const dataString = JSON.stringify({
-                  workers: data.workers || workers,
-                  workload: data.workload || workload,
-                  batches: data.batches ? migrateBatches(data.batches) : batches,
+                  workers: importedWorkers,
+                  workload: importedWorkload,
+                  batches: importedBatches,
                   plan: data.plan,
-                  languages: data.languages || languages
+                  languages: importedLanguages
               });
+              
               lastCloudSync.current = dataString;
+              lastLocalUpdate.current = Date.now();
 
               await savePlanToCloud(
-                  data.projectMeta.name, 
-                  data.projectMeta.notes || '', 
-                  data.workers || workers, 
-                  data.workload || workload, 
+                  newMeta.name, 
+                  newMeta.notes || '', 
+                  importedWorkers, 
+                  importedWorkload, 
                   data.plan, 
-                  data.batches || batches, 
-                  data.languages || languages, 
-                  data.projectMeta.id
+                  importedBatches, 
+                  importedLanguages, 
+                  targetId,
+                  false
               );
               
               setLoading(false);
           }
           
-          showToast("Data imported successfully!");
+          showToast("Data imported and synced to team successfully!");
       } catch (e) {
           console.error("Error importing data:", e);
           showToast("Failed to import data. The file might be corrupted.");
@@ -928,9 +1002,21 @@ const App: React.FC = () => {
   };
 
   const handleLanguageUpdate = async (updatedLanguages: string[]) => {
+      setLanguages(updatedLanguages);
+      lastLocalUpdate.current = Date.now();
+
       if (projectMeta?.id) {
           try {
               setSaveStatus('saving');
+              const dataString = JSON.stringify({
+                  workers,
+                  workload,
+                  batches,
+                  plan,
+                  languages: updatedLanguages
+              });
+              lastCloudSync.current = dataString;
+
               await updateLanguagesInCloud(projectMeta.id, updatedLanguages);
               setSaveStatus('saved');
               setTimeout(() => setSaveStatus('idle'), 2000);
@@ -938,9 +1024,6 @@ const App: React.FC = () => {
               console.error("Error saving languages:", e);
               setSaveStatus('idle');
           }
-      } else {
-          setLanguages(updatedLanguages);
-          lastLocalUpdate.current = Date.now();
       }
   };
 

@@ -183,9 +183,14 @@ export const subscribeToPlan = (planId: string, onUpdate: (data: any) => void) =
                   // Initialize assignmentsData for this day if needed
                   if (!assignmentsData[dayNum]) {
                       assignmentsData[dayNum] = {};
-                      // Pre-populate with existing assignments from dayData if available
+                      // Pre-populate with existing assignments from mainData if available
                       // This prevents flashing empty assignments while waiting for subcollection
-                      if (daysData[dayNum].assignments) {
+                      const baseDay = (mainData?.plan?.schedule || []).find((d: any) => d.day === dayNum);
+                      if (baseDay && baseDay.assignments) {
+                          baseDay.assignments.forEach((a: any) => {
+                              assignmentsData[dayNum][a.id || a.workerId] = a;
+                          });
+                      } else if (daysData[dayNum].assignments) {
                           daysData[dayNum].assignments.forEach(a => {
                               assignmentsData[dayNum][a.id || a.workerId] = a;
                           });
@@ -486,7 +491,7 @@ export const updateWorkersInCloud = async (planId: string, workers: Worker[]) =>
     }
 };
 
-export const updatePlanInCloud = async (planId: string, plan: ProductionPlan) => {
+export const updatePlanInCloud = async (planId: string, plan: ProductionPlan, skipSchedule: boolean = false) => {
     try {
         const database = getDb();
         const planRef = doc(database, 'production_plans', planId);
@@ -498,7 +503,7 @@ export const updatePlanInCloud = async (planId: string, plan: ProductionPlan) =>
             updatedAt: serverTimestamp() 
         });
         
-        if (plan.schedule) {
+        if (plan.schedule && !skipSchedule) {
             await Promise.all(plan.schedule.map(day => saveDayToCloud(planId, day)));
         }
     } catch (e) {
