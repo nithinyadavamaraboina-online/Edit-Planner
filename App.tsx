@@ -11,7 +11,7 @@ import LeaveManagement from './components/LeaveManagement';
 import PresenceList from './components/PresenceList';
 import AIManager from './components/AIManager';
 import { generateProductionPlan } from './services/geminiService';
-import { savePlanToCloud, loadPlanFromCloud, deletePlanFromCloud, getSavedPlans, subscribeToPlan, saveDayToCloud, updatePresence, subscribeToPresence, saveAssignmentToCloud, deleteAssignmentFromCloud, signInWithGoogle, signOutUser, onAuthChange, testConnection, updateBatchesInCloud, updateWorkersInCloud, updatePlanInCloud, updateLanguagesInCloud } from './services/firestoreService';
+import { savePlanToCloud, loadPlanFromCloud, deletePlanFromCloud, getSavedPlans, subscribeToPlan, saveDayToCloud, updatePresence, subscribeToPresence, saveAssignmentToCloud, deleteAssignmentFromCloud, signInWithGoogle, signOutUser, onAuthChange, testConnection, updateBatchesInCloud, updateWorkersInCloud, updatePlanInCloud, updateLanguagesInCloud, updateLeavesInCloud } from './services/firestoreService';
 import { Play, RefreshCw, Loader2, CheckCircle, XCircle, TrendingUp, Calendar, X, CloudUpload, FolderCheck, Check, Upload, HardDrive, Trash2, FolderOpen, Brain, Zap, Clock, Rocket, LayoutDashboard, ListChecks, ArrowLeft, PenTool, ChevronRight, Plus, PieChart, Cloud, Layers, Globe, Shield, LogOut, UserCheck, Settings, Moon, Sun, Trophy } from 'lucide-react';
 import { User as FirebaseUser } from 'firebase/auth';
 
@@ -70,6 +70,21 @@ const App: React.FC = () => {
   const [projectMeta, setProjectMeta] = useState<{id?: string, name: string, notes: string, synced?: boolean} | null>(null);
   const [presence, setPresence] = useState<any[]>([]);
   const userId = authUser?.uid || Math.random().toString(36).substring(2, 15);
+  const authEmail = authUser?.email;
+  const isAdmin = authEmail === 'nithin.yadav.amaraboina@gmail.com';
+  const currentUserWorker = useMemo(() => workers.find(w => w.email === authEmail), [workers, authEmail]);
+  const isTL = currentUserWorker?.role === 'TL';
+  const isTeamMember = !!currentUserWorker;
+
+  useEffect(() => {
+    if (authUser && !authLoading) {
+      if (!isAdmin && !isTL && !isTeamMember) {
+        setCurrentView('admin');
+      } else if (currentView === 'admin' && !isAdmin && !isTL) {
+        setCurrentView('daily');
+      }
+    }
+  }, [authUser, authLoading, isAdmin, isTL, isTeamMember]);
 
   const [loading, setLoading] = useState(false);
   const [cloudSaving, setCloudSaving] = useState(false);
@@ -95,6 +110,9 @@ const App: React.FC = () => {
   // Refs for stable access in event handlers
   const workersRef = useRef(workers);
   const planRef = useRef(plan);
+  const workloadRef = useRef(workload);
+  const batchesRef = useRef(batches);
+  const languagesRef = useRef(languages);
 
   useEffect(() => {
     const unsubscribe = onAuthChange((user) => {
@@ -112,6 +130,18 @@ const App: React.FC = () => {
     planRef.current = plan;
   }, [plan]);
 
+  useEffect(() => {
+    workloadRef.current = workload;
+  }, [workload]);
+
+  useEffect(() => {
+    batchesRef.current = batches;
+  }, [batches]);
+
+  useEffect(() => {
+    languagesRef.current = languages;
+  }, [languages]);
+
   // Helper to migrate batches
   const migrateBatches = (batches: any[]): Batch[] => {
     return (batches || []).map((b: any) => ({
@@ -126,12 +156,22 @@ const App: React.FC = () => {
   // Calculate Global Batch Progress
   const globalBatchesProgress = useMemo(() => {
     const migrated = migrateBatches(batches);
-    if (!plan) return migrated.map(b => ({...b, progress: 0}));
+    if (!plan) return migrated.map(b => ({...b, progress: 0, completedNormal: 0}));
 
-    const stats: Record<string, { assignedGen: number, assignedEdit: number }> = {};
+    const stats: Record<string, { assignedGen: number, assignedEdit: number, assignedNormal: number }> = {};
     
     // Helper to parse dummies to set
     const parseDummies = (str?: string) => {
+        const set = new Set<number>();
+        if (!str) return set;
+        str.trim().split(/[\s,]+/).forEach(s => {
+            const n = parseInt(s);
+            if (!isNaN(n)) set.add(n);
+        });
+        return set;
+    };
+
+    const parseNormalRows = (str?: string) => {
         const set = new Set<number>();
         if (!str) return set;
         str.trim().split(/[\s,]+/).forEach(s => {
@@ -158,10 +198,11 @@ const App: React.FC = () => {
     (plan.schedule || []).forEach(day => {
         (day.assignments || []).forEach(task => {
             if (task.batchId && task.batchId !== 'DEFAULT') {
-                if (!stats[task.batchId]) stats[task.batchId] = { assignedGen: 0, assignedEdit: 0 };
+                if (!stats[task.batchId]) stats[task.batchId] = { assignedGen: 0, assignedEdit: 0, assignedNormal: 0 };
                 
                 const batch = migrated.find(b => b.id === task.batchId);
                 const dummySet = batch ? parseDummies(batch.dummyRows) : new Set<number>();
+                const normalSet = batch ? parseNormalRows(batch.normalRows) : new Set<number>();
 
                 if (task.assignedGenRows && task.assignedGenRows.trim().length > 0) {
                     stats[task.batchId].assignedGen += countValidRows(task.assignedGenRows, dummySet);
@@ -170,7 +211,17 @@ const App: React.FC = () => {
                 }
 
                 if (task.assignedEditRows && task.assignedEditRows.trim().length > 0) {
-                    stats[task.batchId].assignedEdit += countValidRows(task.assignedEditRows, dummySet);
+                    const tokens = task.assignedEditRows.trim().split(/[\s,]+/).filter(Boolean);
+                    tokens.forEach(t => {
+                        const n = parseInt(t);
+                        if (!isNaN(n) && !dummySet.has(n)) {
+                            if (normalSet.has(n)) {
+                                stats[task.batchId].assignedNormal += 1;
+                            } else {
+                                stats[task.batchId].assignedEdit += 1;
+                            }
+                        }
+                    });
                 } else {
                     stats[task.batchId].assignedEdit += task.edits;
                 }
@@ -179,15 +230,19 @@ const App: React.FC = () => {
     });
 
     return migrated.map(b => {
-        const s = stats[b.id] || { assignedGen: 0, assignedEdit: 0 };
+        const s = stats[b.id] || { assignedGen: 0, assignedEdit: 0, assignedNormal: 0 };
         const total = b.aiVideos + (b.aiVideos + b.normalVideos);
-        const done = s.assignedGen + s.assignedEdit;
+        const done = s.assignedGen + s.assignedEdit + s.assignedNormal;
         const p = total > 0 ? Math.round((done / total) * 100) : 0;
         
         return {
             ...b,
             completedGen: s.assignedGen,
             completedEdit: s.assignedEdit,
+            completedNormal: s.assignedNormal,
+            totalGen: b.aiVideos,
+            totalEdit: b.aiVideos,
+            totalNormal: b.normalVideos,
             progress: Math.min(100, p)
         };
     });
@@ -196,12 +251,46 @@ const App: React.FC = () => {
   // --- FILTERING LOGIC ---
   const filteredWorkers = useMemo(() => {
     if (!Array.isArray(workers)) return [];
-    return (workers || []).filter(w => (w.language || 'Telugu') === currentUser.language);
-  }, [workers, currentUser.language]);
+    
+    // 1. Filter by language first (existing logic)
+    let list = (workers || []).filter(w => (w.language || 'Telugu') === currentUser.language);
+    
+    // 2. Apply access control
+    if (isAdmin || isTL) {
+        return list;
+    }
+    
+    if (isTeamMember) {
+        // Show only their row
+        return list.filter(w => w.email === authEmail);
+    }
+    
+    // If not part of the team, show nothing
+    return []; 
+  }, [workers, currentUser.language, isAdmin, isTL, isTeamMember, authEmail]);
 
   const filteredBatches = useMemo(() => {
     if (!Array.isArray(globalBatchesProgress)) return [];
-    return (globalBatchesProgress || []).filter(b => (b.language || 'Telugu') === currentUser.language);
+    const list = (globalBatchesProgress || []).filter(b => (b.language || 'Telugu') === currentUser.language);
+    
+    // Sort logic: active (progress < 100) first, then completed (progress === 100)
+    // Newest first within each group
+    const ongoing = list.filter(b => (b.progress || 0) < 100).sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
+    });
+
+    const completed = list.filter(b => (b.progress || 0) === 100).sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return timeB - timeA;
+    });
+
+    // Show only the last completed batch
+    const lastCompleted = completed.length > 0 ? [completed[0]] : [];
+    
+    return [...ongoing, ...lastCompleted];
   }, [globalBatchesProgress, currentUser.language]);
 
   const otherLangsWithWorkers = useMemo(() => {
@@ -272,7 +361,16 @@ const App: React.FC = () => {
                  setLanguages(Array.from(new Set([...DEFAULT_LANGUAGES, ...cloudData.languages])));
              }
 
-             setCurrentView('daily'); 
+             const isUserAdmin = authUser.email === 'nithin.yadav.amaraboina@gmail.com';
+             const userWorker = migratedWorkers.find((w: Worker) => w.email === authUser.email);
+             const isUserTL = userWorker?.role === 'TL';
+             const isUserTeamMember = !!userWorker;
+
+             if (!isUserAdmin && !isUserTL && !isUserTeamMember) {
+                 setCurrentView('admin');
+             } else {
+                 setCurrentView('daily'); 
+             }
         } else {
              handleManualStart();
         }
@@ -307,6 +405,7 @@ const App: React.FC = () => {
                   });
 
                   if (dataString === lastCloudSync.current) {
+                      pendingRemoteUpdate.current = null;
                       return; // No actual change
                   }
 
@@ -381,8 +480,14 @@ const App: React.FC = () => {
       }
   }, [projectStatus, projectMeta?.id]);
 
-  // Save User Preferences
+  // Save User Preferences & Manage Dark Mode Class
   useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
@@ -493,6 +598,7 @@ const App: React.FC = () => {
               generatedPlan, 
               batches, 
               languages, 
+              leaves,
               projectMeta.id, 
               false
           ).then(() => {
@@ -541,15 +647,15 @@ const App: React.FC = () => {
        
        // Update lastCloudSync before saving to prevent loop
        const dataString = JSON.stringify({
-           workers,
-           workload,
+           workers: workersRef.current,
+           workload: workloadRef.current,
            batches: batchesToSave,
            plan: planToSave,
-           languages
+           languages: languagesRef.current
        });
        lastCloudSync.current = dataString;
 
-       await savePlanToCloud(name, notes, workers, workload, planToSave, batchesToSave, languages, projectMeta.id, true);
+       await savePlanToCloud(name, notes, workers, workload, planToSave, batchesToSave, languages, leaves, projectMeta.id, true);
        
        setProjectMeta(prev => {
          if (!prev) return prev;
@@ -590,11 +696,11 @@ const App: React.FC = () => {
 
       if (projectMeta?.id) {
           const dataString = JSON.stringify({
-              workers,
-              workload,
+              workers: workersRef.current,
+              workload: workloadRef.current,
               batches: finalBatches,
-              plan,
-              languages
+              plan: planRef.current,
+              languages: languagesRef.current
           });
           lastCloudSync.current = dataString;
           await updateBatchesInCloud(projectMeta.id, finalBatches);
@@ -628,11 +734,11 @@ const App: React.FC = () => {
 
       if (projectMeta?.id) {
           const dataString = JSON.stringify({
-              workers,
-              workload,
+              workers: workersRef.current,
+              workload: workloadRef.current,
               batches: newBatches,
-              plan: newPlan || plan,
-              languages
+              plan: newPlan || planRef.current,
+              languages: languagesRef.current
           });
           lastCloudSync.current = dataString;
 
@@ -646,11 +752,12 @@ const App: React.FC = () => {
   const handleWorkerUpdate = async (updatedWorkers: Worker[], basePlan?: ProductionPlan) => {
       const currentPlan = basePlan || planRef.current;
       let currentPlanToSave = currentPlan;
+      let newLeavesState: Record<string, number[]> | undefined;
 
       // Sync leaves to Plan & State
       if (currentPlan) {
           // 1. Update leaves state (indices)
-          const newLeavesState: Record<string, number[]> = {};
+          newLeavesState = {};
           
           updatedWorkers.forEach(w => {
               if (w.leaves && w.leaves.length > 0) {
@@ -675,37 +782,53 @@ const App: React.FC = () => {
 
           // 2. Update Plan Schedule
           const newSchedule = currentPlan.schedule.map(day => {
+              const newAssignments = day.assignments.map(a => {
+                  const worker = updatedWorkers.find(w => w.id === a.workerId);
+                  
+                  // Check leave using Day Index math to be 100% consistent with leaves state
+                  const leave = worker?.leaves?.find(l => {
+                      const [ly, lm, ld] = l.date.split('-').map(Number);
+                      const [sy, sm, sd] = workload.startDate.split('-').map(Number);
+                      const lDate = new Date(Date.UTC(ly, lm - 1, ld));
+                      const sDate = new Date(Date.UTC(sy, sm - 1, sd));
+                      const diffTime = lDate.getTime() - sDate.getTime();
+                      const dayIndex = Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
+                      return dayIndex === day.day;
+                  });
+                  
+                  const isOnLeave = !!leave && (leave.duration || 1) === 1;
+                  const isHalfDay = !!leave && (leave.duration || 1) === 0.5;
+                  
+                  if (a.isOnLeave !== isOnLeave || a.isHalfDay !== isHalfDay || a.batchId === 'LEAVE' || a.batchId === 'HALF_DAY') {
+                      return {
+                          ...a,
+                          isOnLeave: isOnLeave,
+                          isHalfDay: isHalfDay,
+                          batchId: (isOnLeave || isHalfDay) ? undefined : (a.batchId === 'LEAVE' || a.batchId === 'HALF_DAY' ? undefined : a.batchId),
+                          generations: (isOnLeave || isHalfDay) ? 0 : a.generations,
+                          edits: (isOnLeave || isHalfDay) ? 0 : a.edits
+                      };
+                  }
+                  return a;
+              });
+              
               return {
                   ...day,
-                  assignments: day.assignments.map(a => {
-                      const worker = updatedWorkers.find(w => w.id === a.workerId);
-                      
-                      // Check leave using Day Index math to be 100% consistent with leaves state
-                      const isOnLeave = worker?.leaves?.some(l => {
-                          const [ly, lm, ld] = l.date.split('-').map(Number);
-                          const [sy, sm, sd] = workload.startDate.split('-').map(Number);
-                          const lDate = new Date(Date.UTC(ly, lm - 1, ld));
-                          const sDate = new Date(Date.UTC(sy, sm - 1, sd));
-                          const diffTime = lDate.getTime() - sDate.getTime();
-                          const dayIndex = Math.round(diffTime / (1000 * 60 * 60 * 24)) + 1;
-                          return dayIndex === day.day;
-                      });
-                      
-                      if (a.isOnLeave !== !!isOnLeave || a.batchId === 'LEAVE') {
-                          return {
-                              ...a,
-                              isOnLeave: !!isOnLeave,
-                              batchId: isOnLeave ? undefined : (a.batchId === 'LEAVE' ? undefined : a.batchId),
-                              generations: isOnLeave ? 0 : a.generations,
-                              edits: isOnLeave ? 0 : a.edits
-                          };
-                      }
-                      return a;
-                  })
+                  assignments: newAssignments,
+                  dailyTotalGen: newAssignments.reduce((sum, a) => sum + (a.generations || 0), 0),
+                  dailyTotalEdit: newAssignments.reduce((sum, a) => sum + (a.edits || 0), 0)
               };
           });
 
-          currentPlanToSave = { ...currentPlan, schedule: newSchedule };
+          currentPlanToSave = { 
+              ...currentPlan, 
+              schedule: newSchedule,
+              summary: {
+                  ...currentPlan.summary,
+                  totalGenerations: newSchedule.reduce((sum, d) => sum + d.dailyTotalGen, 0),
+                  totalEdits: newSchedule.reduce((sum, d) => sum + d.dailyTotalEdit, 0)
+              }
+          };
           
           setLeaves(newLeavesState);
           setPlan(currentPlanToSave);
@@ -720,15 +843,18 @@ const App: React.FC = () => {
           try {
               const dataString = JSON.stringify({
                   workers: updatedWorkers,
-                  workload,
-                  batches,
+                  workload: workloadRef.current,
+                  batches: batchesRef.current,
                   plan: currentPlanToSave,
-                  languages
+                  languages: languagesRef.current
               });
               lastCloudSync.current = dataString;
 
               await updateWorkersInCloud(projectMeta.id, updatedWorkers);
               await updatePlanInCloud(projectMeta.id, currentPlanToSave);
+              if (newLeavesState) {
+                  await updateLeavesInCloud(projectMeta.id, newLeavesState);
+              }
               setSaveStatus('saved');
               setTimeout(() => setSaveStatus('idle'), 2000);
           } catch (e) {
@@ -737,6 +863,14 @@ const App: React.FC = () => {
           } finally {
               setCloudSaving(false);
           }
+      } else if (!projectMeta?.id && !isSyncing.current && currentPlanToSave) {
+          console.log("Auto-saving new project to cloud from worker update");
+          const defaultName = workloadRef.current.projectName || `Project ${new Date().toLocaleDateString()}`;
+          savePlanToCloud(defaultName, '', updatedWorkers, workloadRef.current, currentPlanToSave, batchesRef.current, languagesRef.current, newLeavesState || leaves, undefined).then(id => {
+              setProjectMeta({ id, name: defaultName, notes: '', synced: true });
+              setProjectStatus('active');
+              window.history.replaceState({}, '', '?id=' + id);
+          }).catch(e => console.error("Failed to auto-save new project", e));
       } else if (projectMeta?.id) {
           setCloudSaving(true);
           try {
@@ -762,49 +896,83 @@ const App: React.FC = () => {
   };
 
   const planMetaSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const granularSaveTimeoutsRef = useRef<Record<string, NodeJS.Timeout>>({});
 
   const handlePlanUpdate = (newPlan: ProductionPlan, saveToCloud: boolean = false, dayToSave?: number, assignmentId?: string, isDeletion: boolean = false) => {
+      console.log("handlePlanUpdate called:", { saveToCloud, dayToSave, assignmentId, isDeletion, projectMetaId: projectMeta?.id, isSyncing: isSyncing.current });
       setPlan(newPlan);
       lastLocalUpdate.current = Date.now();
       
       // Update lastCloudSync to include the new plan so we ignore the echo from Firestore
       const dataString = JSON.stringify({
-          workers,
-          workload,
-          batches,
+          workers: workersRef.current,
+          workload: workloadRef.current,
+          batches: batchesRef.current,
           plan: newPlan,
-          languages
+          languages: languagesRef.current
       });
       lastCloudSync.current = dataString;
       
       if (projectMeta?.id && !isSyncing.current) {
-          // If granular day update is requested, save it immediately
+          console.log("Conditions met for saving to cloud");
+          // If granular day update is requested, debounce it
           if (saveToCloud && dayToSave !== undefined) {
+              console.log("Granular day update requested for day:", dayToSave);
               const dayPlan = newPlan.schedule.find(d => d.day === dayToSave);
               if (dayPlan) {
-                  if (assignmentId) {
-                      if (isDeletion) {
-                          deleteAssignmentFromCloud(projectMeta.id, dayToSave, assignmentId).catch(e => console.error("Granular delete failed", e));
-                      } else {
-                          const assignment = dayPlan.assignments.find(a => (a.id || a.workerId) === assignmentId);
-                          if (assignment) {
-                              saveAssignmentToCloud(projectMeta.id, dayToSave, assignment).catch(e => console.error("Granular assignment save failed", e));
-                          }
-                      }
-                  } else {
-                      saveDayToCloud(projectMeta.id, dayPlan).catch(e => console.error("Granular day save failed", e));
+                  const saveKey = assignmentId ? `day_${dayToSave}_assign_${assignmentId}` : `day_${dayToSave}`;
+                  
+                  if (granularSaveTimeoutsRef.current[saveKey]) {
+                      clearTimeout(granularSaveTimeoutsRef.current[saveKey]);
                   }
+                  
+                  granularSaveTimeoutsRef.current[saveKey] = setTimeout(() => {
+                      if (assignmentId) {
+                          if (isDeletion) {
+                              console.log("Deleting assignment:", assignmentId);
+                              deleteAssignmentFromCloud(projectMeta.id!, dayPlan, assignmentId).catch(e => console.error("Granular delete failed", e));
+                          } else {
+                              const assignment = dayPlan.assignments.find(a => (a.id || a.workerId) === assignmentId);
+                              if (assignment) {
+                                  console.log("Saving assignment:", assignment);
+                                  saveAssignmentToCloud(projectMeta.id!, dayPlan, assignment).catch(e => console.error("Granular assignment save failed", e));
+                              } else {
+                                  console.warn("Assignment not found for id:", assignmentId);
+                              }
+                          }
+                      } else {
+                          console.log("Saving entire day:", dayPlan);
+                          saveDayToCloud(projectMeta.id!, dayPlan).catch(e => console.error("Granular day save failed", e));
+                      }
+                      delete granularSaveTimeoutsRef.current[saveKey];
+                  }, 1000);
+              } else {
+                  console.warn("Day plan not found for day:", dayToSave);
               }
-          } else if (!saveToCloud) {
-              // If saveToCloud is false, it's likely a metadata update (summary, bottlenecks, etc.)
-              // Debounce the save to prevent spamming Firestore
-              if (planMetaSaveTimeoutRef.current) {
-                  clearTimeout(planMetaSaveTimeoutRef.current);
-              }
-              planMetaSaveTimeoutRef.current = setTimeout(() => {
-                  updatePlanInCloud(projectMeta.id, newPlan, true).catch(e => console.error("Plan meta save failed", e));
-              }, 2000);
           }
+          
+          // Always debounce a save of the plan metadata (summary, bottlenecks, etc.)
+          // This ensures that total generations/edits are synced even when only an assignment is updated
+          console.log("Debouncing plan meta save");
+          if (planMetaSaveTimeoutRef.current) {
+              clearTimeout(planMetaSaveTimeoutRef.current);
+          }
+          planMetaSaveTimeoutRef.current = setTimeout(() => {
+              console.log("Executing debounced plan meta save");
+              if (projectMeta?.id) {
+                  updatePlanInCloud(projectMeta.id, newPlan, true).catch(e => console.error("Plan meta save failed", e));
+              }
+          }, 2000);
+      } else if (!projectMeta?.id && saveToCloud && !isSyncing.current) {
+          console.log("Auto-saving new project to cloud");
+          const defaultName = workloadRef.current.projectName || `Project ${new Date().toLocaleDateString()}`;
+          savePlanToCloud(defaultName, '', workersRef.current, workloadRef.current, newPlan, batchesRef.current, languagesRef.current, leaves, undefined).then(id => {
+              setProjectMeta({ id, name: defaultName, notes: '', synced: true });
+              setProjectStatus('active');
+              window.history.replaceState({}, '', '?id=' + id);
+          }).catch(e => console.error("Failed to auto-save new project", e));
+      } else {
+          console.log("Skipping cloud save. projectMeta.id:", projectMeta?.id, "isSyncing:", isSyncing.current);
       }
   };
 
@@ -814,16 +982,16 @@ const App: React.FC = () => {
       setLoading(true);
       try {
           const dataString = JSON.stringify({
-              workers,
-              workload,
-              batches,
-              plan,
-              languages
+              workers: workersRef.current,
+              workload: workloadRef.current,
+              batches: batchesRef.current,
+              plan: planRef.current,
+              languages: languagesRef.current
           });
           lastCloudSync.current = dataString;
 
           // 1. Save to Cloud
-          const id = await savePlanToCloud(name, notes, workers, workload, plan, batches, languages, projectMeta?.id);
+          const id = await savePlanToCloud(name, notes, workers, workload, plan, batches, languages, leaves, projectMeta?.id);
           
           // 2. Update Local State
           setProjectMeta({ id, name, notes, synced: true });
@@ -926,6 +1094,7 @@ const App: React.FC = () => {
                   data.plan, 
                   importedBatches, 
                   importedLanguages, 
+                  data.leaves || {},
                   targetId,
                   false
               );
@@ -941,7 +1110,7 @@ const App: React.FC = () => {
       }
   };
 
-  const toggleLeave = (workerId: string, day: number, forceState?: boolean, basePlan?: ProductionPlan) => {
+  const toggleLeave = (workerId: string, day: number, forceState?: boolean, basePlan?: ProductionPlan, duration: number = 1) => {
     // 1. Calculate Date String (UTC) - Consistent with handleWorkerUpdate
     const [sy, sm, sd] = workload.startDate.split('-').map(Number);
     const date = new Date(Date.UTC(sy, sm - 1, sd));
@@ -954,10 +1123,14 @@ const App: React.FC = () => {
     if (!worker) return;
 
     const currentLeaves = worker.leaves || [];
-    const isAlreadyOnLeave = currentLeaves.some(l => l.date === dateStr);
+    const existingLeave = currentLeaves.find(l => l.date === dateStr);
+    const isAlreadyOnLeave = !!existingLeave;
+    
+    // If we are forcing a state and the duration is different, we should treat it as a change
+    const isDurationDifferent = existingLeave && existingLeave.duration !== duration;
     const shouldBeOnLeave = forceState !== undefined ? forceState : !isAlreadyOnLeave;
 
-    if (shouldBeOnLeave === isAlreadyOnLeave) {
+    if (shouldBeOnLeave === isAlreadyOnLeave && !isDurationDifferent) {
         // Even if worker state doesn't change, if we have a basePlan (from DailyUpdate),
         // we must ensure it gets saved/updated because it might contain new assignments.
         if (basePlan) {
@@ -969,20 +1142,24 @@ const App: React.FC = () => {
     // 3. Create Updated Worker List
     const updatedWorkers = currentWorkers.map(w => {
         if (w.id === workerId) {
+            // First remove any existing leave for this date if we are adding or swapping
+            const filteredLeaves = (w.leaves || []).filter(l => l.date !== dateStr);
+            
             if (shouldBeOnLeave) {
                 return {
                     ...w,
-                    leaves: [...(w.leaves || []), {
+                    leaves: [...filteredLeaves, {
                         id: Math.random().toString(36).substr(2, 9),
                         workerId,
                         date: dateStr,
+                        duration: duration,
                         type: 'paid' // Default
                     } as Leave]
                 };
             } else {
                 return {
                     ...w,
-                    leaves: (w.leaves || []).filter(l => l.date !== dateStr)
+                    leaves: filteredLeaves
                 };
             }
         }
@@ -1009,10 +1186,10 @@ const App: React.FC = () => {
           try {
               setSaveStatus('saving');
               const dataString = JSON.stringify({
-                  workers,
-                  workload,
-                  batches,
-                  plan,
+                  workers: workersRef.current,
+                  workload: workloadRef.current,
+                  batches: batchesRef.current,
+                  plan: planRef.current,
                   languages: updatedLanguages
               });
               lastCloudSync.current = dataString;
@@ -1024,6 +1201,14 @@ const App: React.FC = () => {
               console.error("Error saving languages:", e);
               setSaveStatus('idle');
           }
+      } else if (!projectMeta?.id && !isSyncing.current && planRef.current) {
+          console.log("Auto-saving new project to cloud from language update");
+          const defaultName = workloadRef.current.projectName || `Project ${new Date().toLocaleDateString()}`;
+          savePlanToCloud(defaultName, '', workersRef.current, workloadRef.current, planRef.current, batchesRef.current, updatedLanguages, leaves, undefined).then(id => {
+              setProjectMeta({ id, name: defaultName, notes: '', synced: true });
+              setProjectStatus('active');
+              window.history.replaceState({}, '', '?id=' + id);
+          }).catch(e => console.error("Failed to auto-save new project", e));
       }
   };
 
@@ -1042,13 +1227,12 @@ const App: React.FC = () => {
 
   if (!authUser) {
     return (
-      <div className={isDarkMode ? "dark" : ""}>
-        <div className="h-screen w-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100">
-          <div className="max-w-md w-full p-8 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 text-center">
-            <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/50 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-inner">
+      <div className="h-screen w-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 overflow-hidden transition-colors duration-300">
+          <div className="max-w-md w-full p-8 bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 text-center animate-in zoom-in duration-300">
+            <div className="w-16 h-16 bg-indigo-100 dark:bg-indigo-900/50 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-inner transition-colors">
               <Layers className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
             </div>
-            <h1 className="text-2xl font-bold mb-2">Production Planner</h1>
+            <h1 className="text-2xl font-bold mb-2 text-slate-800 dark:text-white">Production Planner</h1>
             <p className="text-slate-500 dark:text-slate-400 mb-8">Sign in to collaborate with your team in real-time.</p>
             <button
               onClick={signInWithGoogle}
@@ -1058,13 +1242,12 @@ const App: React.FC = () => {
               Sign in with Google
             </button>
           </div>
-        </div>
       </div>
     );
   }
 
+  // Remove the unclosed div wrapper if it was still there
   return (
-    <div className={isDarkMode ? "dark" : ""}>
     <div className="h-screen w-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col overflow-hidden font-sans transition-colors duration-300">
       <NewBatchModal 
         isOpen={showBatchModal} 
@@ -1123,18 +1306,18 @@ const App: React.FC = () => {
                    <h1 className="text-xl font-black text-slate-800 dark:text-white">Project Dashboard</h1>
                 </div>
               ) : (
-                <div className="hidden sm:flex items-center gap-2">
+                <div className="flex items-center gap-2 lg:gap-4 ml-2">
                     <div className="relative group">
                         <select 
                             value={currentUser.language} 
                             onChange={(e) => handleLanguageChange(e.target.value)}
-                            className="appearance-none bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-200 text-sm py-1.5 pl-3 pr-8 rounded-lg outline-none focus:ring-2 focus:ring-[#F26C21] cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                            className="appearance-none bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-200 text-[10px] md:text-sm py-1.5 pl-2 pr-6 md:pl-3 md:pr-8 rounded-lg outline-none focus:ring-2 focus:ring-[#F26C21] cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                         >
                             {(Array.from(new Set(languages)) as string[]).map(lang => (
                                 <option key={lang} value={lang}>{lang} Team</option>
                             ))}
                         </select>
-                        <Globe size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 pointer-events-none"/>
+                        <Globe size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 dark:text-slate-400 pointer-events-none md:scale-100 scale-75"/>
                     </div>
 
                     <button 
@@ -1149,19 +1332,21 @@ const App: React.FC = () => {
                     >
                         {cloudSaving ? <Loader2 size={14} className="animate-spin" /> : "Sync"}
                     </button>
-                    <button 
-                        onClick={() => setShowSettingsModal(true)}
-                        className="p-1.5 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg transition-colors"
-                        title="Settings"
-                    >
-                        <Settings size={18} />
-                    </button>
+                    {(isAdmin || isTL) && (
+                        <button 
+                            onClick={() => setShowSettingsModal(true)}
+                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg transition-colors"
+                            title="Settings"
+                        >
+                            <Settings size={18} />
+                        </button>
+                    )}
                 </div>
               )}
             </div>
 
             {/* Navigation Tabs */}
-            {currentView !== 'admin' && (
+            {(isAdmin || isTL) && (
                 <div className="flex bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-full ml-2 md:ml-6 border border-slate-200/50 dark:border-slate-700/50 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
                 <button 
                     onClick={() => setCurrentView('daily')}
@@ -1186,6 +1371,22 @@ const App: React.FC = () => {
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'ai-manager' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
                 >
                     <Brain size={14} /> AI Insights
+                </button>
+                </div>
+            )}
+            {isTeamMember && !(isAdmin || isTL) && (
+                <div className="flex bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-full ml-2 md:ml-6 border border-slate-200/50 dark:border-slate-700/50 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                <button 
+                    onClick={() => setCurrentView('daily')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'daily' ? 'bg-white dark:bg-slate-700 text-[#F26C21] dark:text-[#F26C21] shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
+                >
+                    <ListChecks size={14} /> Daily
+                </button>
+                <button 
+                    onClick={() => setCurrentView('leaves')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'leaves' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
+                >
+                    <Calendar size={14} /> Leaves
                 </button>
                 </div>
             )}
@@ -1215,21 +1416,23 @@ const App: React.FC = () => {
                 {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
              </button>
 
-            {/* Dashboard Toggle - Hidden on Mobile */}
-            <button 
-                onClick={toggleAdminMode}
-                className={`hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-xs md:text-sm transition-all ${currentView === 'admin' ? 'bg-slate-800 text-white dark:bg-slate-700' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-            >
-                {currentView === 'admin' ? <><ArrowLeft size={14}/> Back</> : <><Shield size={14}/> Dashboard</>}
-            </button>
+             {/* Sign Out Button */}
+             <button
+                onClick={() => signOutUser().catch(console.error)}
+                className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-red-100 dark:hover:bg-red-900/40 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                title="Sign Out"
+             >
+                <LogOut size={18} />
+             </button>
 
-            {(currentView === 'daily' || currentView === 'assign') && (
-              <button 
-                onClick={() => { setEditingBatch(null); setShowBatchModal(true); }}
-                className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs md:text-sm shadow-md transition-all active:scale-95"
-              >
-                <Plus size={16} /> <span className="hidden md:inline">New Batch</span>
-              </button>
+            {/* Dashboard Toggle - Hidden on Mobile */}
+            {(isAdmin || isTL) && (
+                <button 
+                    onClick={toggleAdminMode}
+                    className={`hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-xs md:text-sm transition-all ${currentView === 'admin' ? 'bg-slate-800 text-white dark:bg-slate-700' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                >
+                    {currentView === 'admin' ? <><ArrowLeft size={14}/> Back</> : <><Shield size={14}/> Dashboard</>}
+                </button>
             )}
             
             {plan && (
@@ -1248,18 +1451,19 @@ const App: React.FC = () => {
       <div className="flex-1 flex overflow-hidden">
         
         {/* VIEW: DASHBOARD */}
-        {currentView === 'admin' && (
+        {(!isTeamMember || isAdmin || isTL) && currentView === 'admin' && (
             <AdminPage 
                 workers={workers} 
                 onBack={() => setCurrentView('daily')} 
                 batches={globalBatchesProgress} // Use Global including progress
                 plan={plan}
                 projectMeta={projectMeta}
+                onError={showToast}
             />
         )}
 
         {/* VIEW: LEAVES */}
-        {currentView === 'leaves' && (
+        {(isAdmin || isTL || isTeamMember) && currentView === 'leaves' && (
           <main className="flex-1 w-full h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 p-4 lg:p-6">
             <LeaveManagement 
                 workers={workers} 
@@ -1267,12 +1471,13 @@ const App: React.FC = () => {
                 languages={languages} 
                 currentLanguage={currentUser.language}
                 onUpdate={handleWorkerUpdate}
+                readOnly={!isAdmin && !isTL}
             />
           </main>
         )}
 
         {/* VIEW: AI MANAGER */}
-        {currentView === 'ai-manager' && (
+        {(isAdmin || isTL) && currentView === 'ai-manager' && (
           <main className="flex-1 h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 p-4 lg:p-6">
             {plan ? (
               <AIManager 
@@ -1303,7 +1508,7 @@ const App: React.FC = () => {
                  plan={plan} 
                  workload={workload} 
                  workers={filteredWorkers} // Filtered for default view
-                 allWorkers={workers} // Pass all for add functionality
+                 allWorkers={isAdmin || isTL ? workers : filteredWorkers} // Pass all for add functionality, or just themselves for team members
                  batches={filteredBatches} // Pass Filtered Batches
                  leaves={leaves} // Pass leaves state
                  onUpdatePlan={handlePlanUpdate}
@@ -1311,6 +1516,8 @@ const App: React.FC = () => {
                  onDeleteBatch={handleDeleteBatch}
                  onEditBatch={handleEditBatch} 
                  currentLanguage={currentUser.language} 
+                 readOnlyBatches={!isAdmin && !isTL}
+                 onNewBatch={() => { setEditingBatch(null); setShowBatchModal(true); }}
                />
              ) : (
                <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 border-dashed">
@@ -1328,7 +1535,7 @@ const App: React.FC = () => {
         )}
 
         {/* VIEW: ASSIGN WORK */}
-        {currentView === 'assign' && (
+        {(isAdmin || isTL) && currentView === 'assign' && (
           <main className="flex-1 h-full overflow-hidden bg-slate-50 dark:bg-slate-950 p-4 lg:p-6">
              {plan ? (
                <AssignWork 
@@ -1355,7 +1562,6 @@ const App: React.FC = () => {
         )}
 
       </div>
-    </div>
     </div>
   );
 };

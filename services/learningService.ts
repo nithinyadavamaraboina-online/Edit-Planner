@@ -1,8 +1,6 @@
 
 import { collection, doc, setDoc, getDocs, deleteDoc, query, where, serverTimestamp } from 'firebase/firestore';
-import { getAuthInstance, handleFirestoreError, OperationType } from './firestoreService';
-import { getFirestore } from 'firebase/firestore';
-import { getApp } from 'firebase/app';
+import { getAuthInstance, handleFirestoreError, OperationType, getDb } from './firestoreService';
 
 export interface LearningRule {
   id: string;
@@ -11,8 +9,6 @@ export interface LearningRule {
   active: boolean;
   userId: string;
 }
-
-const getDb = () => getFirestore(getApp());
 
 export const getLearnedRules = async (): Promise<LearningRule[]> => {
   try {

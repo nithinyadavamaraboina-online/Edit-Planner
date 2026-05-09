@@ -170,6 +170,7 @@ const EditorsApp: React.FC = () => {
       setLeaves(newLeavesState);
   }, [workers, workload]);
 
+  const planMetaSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const getPlanId = () => new URLSearchParams(window.location.search).get('id');
 
   const filteredWorkers = workers.filter(w => (w.language || 'Telugu') === currentLanguage);
@@ -183,13 +184,23 @@ const EditorsApp: React.FC = () => {
     }));
   };
 
-  const globalBatchesProgress = useMemo(() => {
+    const globalBatchesProgress = useMemo(() => {
     const migrated = migrateBatches(batches);
-    if (!plan) return migrated.map(b => ({...b, progress: 0}));
+    if (!plan) return migrated.map(b => ({...b, progress: 0, completedNormal: 0}));
 
-    const stats: Record<string, { assignedGen: number, assignedEdit: number }> = {};
+    const stats: Record<string, { assignedGen: number, assignedEdit: number, assignedNormal: number }> = {};
     
     const parseDummies = (str?: string) => {
+        const set = new Set<number>();
+        if (!str) return set;
+        str.trim().split(/[\s,]+/).forEach(s => {
+            const n = parseInt(s);
+            if (!isNaN(n)) set.add(n);
+        });
+        return set;
+    };
+
+    const parseNormalRows = (str?: string) => {
         const set = new Set<number>();
         if (!str) return set;
         str.trim().split(/[\s,]+/).forEach(s => {
@@ -215,10 +226,11 @@ const EditorsApp: React.FC = () => {
     (plan.schedule || []).forEach(day => {
         (day.assignments || []).forEach(task => {
             if (task.batchId && task.batchId !== 'DEFAULT') {
-                if (!stats[task.batchId]) stats[task.batchId] = { assignedGen: 0, assignedEdit: 0 };
+                if (!stats[task.batchId]) stats[task.batchId] = { assignedGen: 0, assignedEdit: 0, assignedNormal: 0 };
                 
                 const batch = migrated.find(b => b.id === task.batchId);
                 const dummySet = batch ? parseDummies(batch.dummyRows) : new Set<number>();
+                const normalSet = batch ? parseNormalRows(batch.normalRows) : new Set<number>();
 
                 if (task.assignedGenRows && task.assignedGenRows.trim().length > 0) {
                     stats[task.batchId].assignedGen += countValidRows(task.assignedGenRows, dummySet);
@@ -227,7 +239,17 @@ const EditorsApp: React.FC = () => {
                 }
 
                 if (task.assignedEditRows && task.assignedEditRows.trim().length > 0) {
-                    stats[task.batchId].assignedEdit += countValidRows(task.assignedEditRows, dummySet);
+                    const tokens = task.assignedEditRows.trim().split(/[\s,]+/).filter(Boolean);
+                    tokens.forEach(t => {
+                        const n = parseInt(t);
+                        if (!isNaN(n) && !dummySet.has(n)) {
+                            if (normalSet.has(n)) {
+                                stats[task.batchId].assignedNormal += 1;
+                            } else {
+                                stats[task.batchId].assignedEdit += 1;
+                            }
+                        }
+                    });
                 } else {
                     stats[task.batchId].assignedEdit += task.edits;
                 }
@@ -236,15 +258,16 @@ const EditorsApp: React.FC = () => {
     });
 
     return migrated.map(b => {
-        const s = stats[b.id] || { assignedGen: 0, assignedEdit: 0 };
+        const s = stats[b.id] || { assignedGen: 0, assignedEdit: 0, assignedNormal: 0 };
         const total = b.aiVideos + (b.aiVideos + b.normalVideos);
-        const done = s.assignedGen + s.assignedEdit;
+        const done = s.assignedGen + s.assignedEdit + s.assignedNormal;
         const p = total > 0 ? Math.round((done / total) * 100) : 0;
         
         return {
             ...b,
             completedGen: s.assignedGen,
             completedEdit: s.assignedEdit,
+            completedNormal: s.assignedNormal,
             progress: Math.min(100, p)
         };
     });
@@ -264,22 +287,32 @@ const EditorsApp: React.FC = () => {
       lastCloudSync.current = dataString;
       
       const planId = getPlanId();
-      if (saveToCloud && planId && dayToSave !== undefined && !isSyncing.current) {
-          const dayPlan = newPlan.schedule.find(d => d.day === dayToSave);
-          if (dayPlan) {
-              if (assignmentId) {
-                  if (isDeletion) {
-                      deleteAssignmentFromCloud(planId, dayToSave, assignmentId).catch(e => console.error("Granular delete failed", e));
-                  } else {
-                      const assignment = dayPlan.assignments.find(a => (a.id || a.workerId) === assignmentId);
-                      if (assignment) {
-                          saveAssignmentToCloud(planId, dayToSave, assignment).catch(e => console.error("Granular assignment save failed", e));
+      if (planId && !isSyncing.current) {
+          if (saveToCloud && dayToSave !== undefined) {
+              const dayPlan = newPlan.schedule.find(d => d.day === dayToSave);
+              if (dayPlan) {
+                  if (assignmentId) {
+                      if (isDeletion) {
+                          deleteAssignmentFromCloud(planId, dayPlan, assignmentId).catch(e => console.error("Granular delete failed", e));
+                      } else {
+                          const assignment = dayPlan.assignments.find(a => (a.id || a.workerId) === assignmentId);
+                          if (assignment) {
+                              saveAssignmentToCloud(planId, dayPlan, assignment).catch(e => console.error("Granular assignment save failed", e));
+                          }
                       }
+                  } else {
+                      saveDayToCloud(planId, dayPlan).catch(e => console.error("Granular day save failed", e));
                   }
-              } else {
-                  saveDayToCloud(planId, dayPlan).catch(e => console.error("Granular day save failed", e));
               }
           }
+          
+          // Always debounce a save of the plan metadata (summary, bottlenecks, etc.)
+          if (planMetaSaveTimeoutRef.current) {
+              clearTimeout(planMetaSaveTimeoutRef.current);
+          }
+          planMetaSaveTimeoutRef.current = setTimeout(() => {
+              updatePlanInCloud(planId, newPlan, true).catch(e => console.error("Plan meta save failed", e));
+          }, 2000);
       }
   };
 

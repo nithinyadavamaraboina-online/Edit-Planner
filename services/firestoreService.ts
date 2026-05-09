@@ -12,6 +12,8 @@ export const testConnection = async () => {
   } catch (error) {
     if(error instanceof Error && error.message.includes('the client is offline')) {
       console.error("Please check your Firebase configuration. ");
+    } else {
+      console.log("Firestore connection test completed (expected error if no test doc exists)");
     }
   }
 };
@@ -143,6 +145,7 @@ export const subscribeToPlan = (planId: string, onUpdate: (data: any) => void) =
               bottlenecks: data.bottlenecks,
               constraints: data.constraints,
               risks: data.risks,
+              rowAssignments: data.rowAssignments || {},
               schedule: data.schedule || []
             },
             projectMeta: {
@@ -268,7 +271,7 @@ const sanitizeForFirestore = (obj: any): any => {
 /**
  * Initializes or retrieves the Firestore instance.
  */
-const getDb = () => {
+export const getDb = () => {
   if (db) return db;
 
   // Initialize Firebase
@@ -279,7 +282,11 @@ const getDb = () => {
     app = getApp();
   }
   
-  db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  if (firebaseConfig.firestoreDatabaseId) {
+    db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  } else {
+    db = getFirestore(app);
+  }
   return db;
 };
 
@@ -374,18 +381,20 @@ export const saveDayToCloud = async (planId: string, dayPlan: DayPlan) => {
 /**
  * Saves a single assignment to the cloud.
  */
-export const saveAssignmentToCloud = async (planId: string, dayNum: number, assignment: TaskAssignment) => {
+export const saveAssignmentToCloud = async (planId: string, dayPlan: DayPlan, assignment: TaskAssignment) => {
     try {
         const database = getDb();
         // Ensure the day document exists so other clients subscribe to its assignments subcollection
-        const dayRef = doc(database, 'production_plans', planId, 'days', dayNum.toString());
-        await setDoc(dayRef, { day: dayNum }, { merge: true });
+        const dayRef = doc(database, 'production_plans', planId, 'days', dayPlan.day.toString());
+        
+        const { assignments, ...dayMeta } = dayPlan;
+        await setDoc(dayRef, sanitizeForFirestore(dayMeta), { merge: true });
         
         const taskRef = doc(dayRef, 'assignments', assignment.id || assignment.workerId);
         await setDoc(taskRef, sanitizeForFirestore(assignment), { merge: true });
     } catch (e) {
         if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
-            handleFirestoreError(e, OperationType.UPDATE, `production_plans/${planId}/days/${dayNum}/assignments/${assignment.id || assignment.workerId}`);
+            handleFirestoreError(e, OperationType.UPDATE, `production_plans/${planId}/days/${dayPlan.day}/assignments/${assignment.id || assignment.workerId}`);
         }
         console.error("Error saving assignment to cloud:", e);
         throw e;
@@ -395,18 +404,20 @@ export const saveAssignmentToCloud = async (planId: string, dayNum: number, assi
 /**
  * Deletes an assignment from the cloud.
  */
-export const deleteAssignmentFromCloud = async (planId: string, dayNum: number, assignmentId: string) => {
+export const deleteAssignmentFromCloud = async (planId: string, dayPlan: DayPlan, assignmentId: string) => {
     try {
         const database = getDb();
         // Ensure the day document exists so other clients subscribe to its assignments subcollection
-        const dayRef = doc(database, 'production_plans', planId, 'days', dayNum.toString());
-        await setDoc(dayRef, { day: dayNum }, { merge: true });
+        const dayRef = doc(database, 'production_plans', planId, 'days', dayPlan.day.toString());
+        
+        const { assignments, ...dayMeta } = dayPlan;
+        await setDoc(dayRef, sanitizeForFirestore(dayMeta), { merge: true });
         
         const taskRef = doc(dayRef, 'assignments', assignmentId);
         await deleteDoc(taskRef);
     } catch (e) {
         if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
-            handleFirestoreError(e, OperationType.DELETE, `production_plans/${planId}/days/${dayNum}/assignments/${assignmentId}`);
+            handleFirestoreError(e, OperationType.DELETE, `production_plans/${planId}/days/${dayPlan.day}/assignments/${assignmentId}`);
         }
         console.error("Error deleting assignment from cloud:", e);
         throw e;
@@ -491,6 +502,23 @@ export const updateWorkersInCloud = async (planId: string, workers: Worker[]) =>
     }
 };
 
+export const updateLeavesInCloud = async (planId: string, leaves: Record<string, number[]>) => {
+    try {
+        const database = getDb();
+        const planRef = doc(database, 'production_plans', planId);
+        await updateDoc(planRef, { 
+            leaves: sanitizeForFirestore(leaves), 
+            updatedAt: serverTimestamp() 
+        });
+    } catch (e) {
+        if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+            handleFirestoreError(e, OperationType.UPDATE, `production_plans/${planId}`);
+        }
+        console.error("Error updating leaves:", e);
+        throw e;
+    }
+};
+
 export const updatePlanInCloud = async (planId: string, plan: ProductionPlan, skipSchedule: boolean = false) => {
     try {
         const database = getDb();
@@ -500,11 +528,14 @@ export const updatePlanInCloud = async (planId: string, plan: ProductionPlan, sk
             bottlenecks: sanitizeForFirestore(plan.bottlenecks),
             constraints: sanitizeForFirestore(plan.constraints),
             risks: sanitizeForFirestore(plan.risks),
+            rowAssignments: sanitizeForFirestore(plan.rowAssignments || {}),
             updatedAt: serverTimestamp() 
         });
         
         if (plan.schedule && !skipSchedule) {
-            await Promise.all(plan.schedule.map(day => saveDayToCloud(planId, day)));
+            for (const day of plan.schedule) {
+                await saveDayToCloud(planId, day);
+            }
         }
     } catch (e) {
         if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
@@ -544,6 +575,7 @@ export const savePlanToCloud = async (
   plan: ProductionPlan,
   batches: Batch[] = [],
   languages: string[] = [],
+  leaves: Record<string, number[]> = {},
   planId?: string,
   skipSchedule: boolean = false
 ) => {
@@ -559,9 +591,11 @@ export const savePlanToCloud = async (
       workers: workers,
       batches: batches,
       languages: languages,
+      leaves: leaves,
       bottlenecks: plan.bottlenecks,
       constraints: plan.constraints,
       risks: plan.risks,
+      rowAssignments: plan.rowAssignments || {},
     };
 
     if (!skipSchedule) {
@@ -608,8 +642,10 @@ export const savePlanToCloud = async (
         });
         await Promise.all(deletePromises);
 
-        // Run these sequentially to avoid overwhelming Firestore, or use Promise.all
-        await Promise.all(plan.schedule.map(day => saveDayToCloud(finalPlanId!, day)));
+        // Run these sequentially to avoid overwhelming Firestore
+        for (const day of plan.schedule) {
+            await saveDayToCloud(finalPlanId!, day);
+        }
     }
 
     return finalPlanId!;
@@ -705,6 +741,7 @@ export const loadPlanFromCloud = async (planId: string) => {
       workload: data.workload,
       batches: data.batches || [],
       languages: data.languages || DEFAULT_LANGUAGES,
+      leaves: data.leaves || {},
       plan: {
         summary: data.summary,
         bottlenecks: data.bottlenecks,

@@ -100,151 +100,150 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh]">
-        <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+      <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[90vh] border border-slate-200 dark:border-slate-800 transition-colors">
+        <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 transition-colors">
           <div className="flex items-center gap-3">
-             <div className="p-2 bg-blue-100 rounded-lg">
-               <Layers className="text-blue-600" size={20} />
+             <div className="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg transition-colors">
+               <Layers className="text-blue-600 dark:text-blue-400" size={20} />
              </div>
              <div>
-                <h2 className="text-lg font-bold text-slate-800">{initialData ? 'Edit Batch' : `New ${currentLanguage} Batch`}</h2>
+                <h2 className="text-lg font-bold text-slate-800 dark:text-white transition-colors">{initialData ? 'Edit Batch' : `New ${currentLanguage} Batch`}</h2>
              </div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+          <button onClick={onClose} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
             <X size={20} />
           </button>
         </div>
         
-        <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
+        <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar bg-white dark:bg-slate-900 transition-colors">
           <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">Client Name</label>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Client Name</label>
             <input
               type="text"
               value={clientName}
               onChange={(e) => setClientName(e.target.value)}
-              className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
               placeholder="Nerchuko"
               autoFocus={!initialData}
             />
           </div>
           
           <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">Batch Name/ID</label>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Batch Name/ID</label>
             <input
               type="text"
               value={batchName}
               onChange={(e) => setBatchName(e.target.value)}
-              className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+              className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
               placeholder="Batch-04-OCT"
             />
           </div>
           
           <div className="grid grid-cols-2 gap-4">
              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">Start Date</label>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Start Date</label>
                 <input
                   type="date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
                 />
              </div>
              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">End Date</label>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">End Date</label>
                 <input
                   type="date"
                   value={endDate}
-                  min={startDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
                 />
              </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">Start Row</label>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Start Row</label>
                 <input
                   type="number"
                   min="1"
                   value={startRow}
                   onChange={(e) => setStartRow(parseInt(e.target.value) || 0)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-lg font-black text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-lg font-black text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
                 />
              </div>
              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">End Row</label>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">End Row</label>
                 <input
                   type="number"
                   min="1"
                   value={endRow}
                   onChange={(e) => setEndRow(parseInt(e.target.value) || 0)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-lg font-black text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-lg font-black text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
                 />
              </div>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">AI Videos</label>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">AI Videos</label>
                 <input
                   type="number"
                   min="0"
                   value={aiVideos}
                   onChange={(e) => setAiVideos(parseInt(e.target.value) || 0)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-lg font-black text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-lg font-black text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
                 />
              </div>
              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">Normal Videos</label>
+                <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Normal Videos</label>
                 <input
                   type="number"
                   min="0"
                   value={normalVideos}
                   onChange={(e) => setNormalVideos(parseInt(e.target.value) || 0)}
-                  className="w-full p-2.5 border border-slate-200 rounded-lg text-lg font-black text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-lg font-black text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
                 />
              </div>
           </div>
           
           <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">Normal Rows (Optional)</label>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Normal Rows (Optional)</label>
             <input
               type="text"
               value={normalRows}
               onChange={(e) => setNormalRows(e.target.value)}
               onBlur={() => setNormalRows(sanitizeRowInput(normalRows, startRow, endRow))}
-              className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-300"
+              className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600 transition-colors"
               placeholder="1 2 3 (Normal Videos)"
             />
-            <p className="text-[10px] text-slate-400 mt-1">Specify which rows are normal videos.</p>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">Specify which rows are normal videos.</p>
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-500 mb-1">Dummy Rows (Optional)</label>
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Dummy Rows (Optional)</label>
             <input
               type="text"
               value={dummyRows}
               onChange={(e) => setDummyRows(e.target.value)}
               onBlur={() => setDummyRows(sanitizeRowInput(dummyRows, startRow, endRow))}
-              className="w-full p-2.5 border border-slate-200 rounded-lg text-sm font-bold text-slate-900 bg-white focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-300"
+              className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600 transition-colors"
               placeholder="5 12 30 (Rows to skip)"
             />
-            <p className="text-[10px] text-slate-400 mt-1">These rows won't count as pending work.</p>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">These rows won't count as pending work.</p>
           </div>
         </div>
 
-        <div className="p-5 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
+        <div className="p-5 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3 bg-slate-50 dark:bg-slate-800/80 transition-colors">
           <button 
             onClick={onClose}
-            className="px-4 py-2 text-slate-600 font-bold text-sm hover:bg-slate-200 rounded-lg transition-colors"
+            className="px-4 py-2 text-slate-600 dark:text-slate-400 font-bold text-sm hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
           >
             Cancel
           </button>
           <button 
             onClick={handleSubmit}
             disabled={!clientName || !batchName}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-lg shadow-lg shadow-blue-200 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm rounded-lg shadow-lg shadow-blue-200 dark:shadow-none transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {initialData ? 'Update Batch' : 'Create Batch'}
           </button>

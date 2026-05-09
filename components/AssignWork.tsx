@@ -1,16 +1,15 @@
-
 import React, { useState, useMemo } from 'react';
 import { ProductionPlan, Workload, Worker, Batch, TaskAssignment } from '../types';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Layers, Plus, Trash2, CornerDownRight, Hash, Save, Check, Loader2, ArrowRight, CheckCircle, UserPlus, X, Lock, Zap, FileVideo, Edit3, AlertCircle } from 'lucide-react';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Trash2, Split, Zap, FileVideo, PenTool, CornerDownRight } from 'lucide-react';
 
 interface AssignWorkProps {
   plan: ProductionPlan;
   workload: Workload;
-  workers: Worker[]; // Filtered workers
-  allWorkers?: Worker[]; // All workers
+  workers: Worker[];
+  allWorkers?: Worker[];
   batches?: Batch[];
   onUpdatePlan: (plan: ProductionPlan, saveToCloud?: boolean, dayToSave?: number, assignmentId?: string, isDeletion?: boolean) => void;
-  onToggleLeave?: (workerId: string, day: number, forceState?: boolean, basePlan?: any) => void;
+  onToggleLeave?: (workerId: string, day: number, forceState?: boolean, basePlan?: any, duration?: number) => void;
   currentLanguage: string;
 }
 
@@ -24,13 +23,15 @@ const AssignWork: React.FC<AssignWorkProps> = ({
   onToggleLeave,
   currentLanguage
 }) => {
-  const getProjectStartDate = () => new Date(workload.startDate);
+  const getProjectStartDate = () => {
+      const [y, m, d] = workload.startDate.split('-').map(Number);
+      return new Date(y, m - 1, d);
+  };
   
   const getDayIndexFromDate = (date: Date) => {
     const start = getProjectStartDate();
-    const d1 = new Date(start.getFullYear(), start.getMonth(), start.getDate());
     const d2 = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const diffTime = d2.getTime() - d1.getTime();
+    const diffTime = d2.getTime() - start.getTime();
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; 
   };
 
@@ -46,33 +47,20 @@ const AssignWork: React.FC<AssignWorkProps> = ({
     return getDayIndexFromDate(today);
   };
 
-  const isDayLockedForTeam = (dayPlan: any) => {
-      if (!dayPlan) return false;
-      if (dayPlan.lockedTeams?.includes(currentLanguage)) return true;
-      if (dayPlan.locked === true && !dayPlan.lockedTeams) return true;
-      return false;
-  };
-
   const [selectedDay, setSelectedDay] = useState<number>(() => {
       const todayIdx = getTodayIndex();
-      if (todayIdx >= 1) return todayIdx;
-      const activeIdx = plan.schedule.length > 0 ? plan.schedule.findIndex(d => !(d.lockedTeams?.includes(currentLanguage) || (d.locked && !d.lockedTeams))) : -1;
-      if (activeIdx !== -1) return plan.schedule[activeIdx].day;
-      if (plan.schedule.length > 0) return plan.schedule[plan.schedule.length - 1].day;
-      return 1;
+      return todayIdx >= 1 ? todayIdx : 1;
   });
 
   const [viewDate, setViewDate] = useState(() => getDateFromDayIndex(selectedDay));
-  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
-  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const [showAddWorkerModal, setShowAddWorkerModal] = useState(false);
+
+  const currentCalendarDate = getDateFromDayIndex(selectedDay);
 
   let currentDayPlan = plan.schedule.find(d => d.day === selectedDay);
-  
   if (!currentDayPlan) {
       currentDayPlan = {
           day: selectedDay,
-          assignments: [],
+          assignments: [], 
           dailyTotalGen: 0,
           dailyTotalEdit: 0,
           locked: false,
@@ -80,23 +68,6 @@ const AssignWork: React.FC<AssignWorkProps> = ({
       };
   }
 
-  const isCurrentDayLocked = isDayLockedForTeam(currentDayPlan);
-
-  const handlePrevDay = () => {
-    if (selectedDay > 1) {
-      const newDay = selectedDay - 1;
-      setSelectedDay(newDay);
-      setViewDate(getDateFromDayIndex(newDay));
-    }
-  };
-
-  const handleNextDay = () => {
-    const newDay = selectedDay + 1;
-    setSelectedDay(newDay);
-    setViewDate(getDateFromDayIndex(newDay));
-  };
-
-  // --- Worker Display Logic ---
   const defaultTeam = useMemo(() => {
     if (!Array.isArray(workers)) return [];
     return workers.filter(w => w.role !== 'Assist');
@@ -105,16 +76,24 @@ const AssignWork: React.FC<AssignWorkProps> = ({
   const displayedWorkers = useMemo(() => {
       const relevantWorkerIds = new Set<string>();
       defaultTeam.forEach(w => relevantWorkerIds.add(w.id));
-
       (currentDayPlan.assignments || []).forEach(task => {
           if (task.taskLanguage) {
-              if (task.taskLanguage === currentLanguage) relevantWorkerIds.add(task.workerId);
+              if (task.taskLanguage === currentLanguage) {
+                  relevantWorkerIds.add(task.workerId);
+              }
           } else {
               const worker = allWorkers.find(w => w.id === task.workerId);
-              if (worker && (worker.language || 'Telugu') === currentLanguage) relevantWorkerIds.add(task.workerId);
+              if (worker && (worker.language || 'Telugu') === currentLanguage) {
+                  relevantWorkerIds.add(task.workerId);
+              }
+              if (worker && (worker.language || 'Telugu') !== currentLanguage) {
+                  const batch = batches.find(b => b.id === task.batchId);
+                  if (batch && (batch.language || 'Telugu') === currentLanguage) {
+                      relevantWorkerIds.add(task.workerId);
+                  }
+              }
           }
       });
-
       const list = allWorkers.filter(w => relevantWorkerIds.has(w.id));
       return list.sort((a, b) => {
           const aIsDefault = defaultTeam.some(dt => dt.id === a.id);
@@ -123,334 +102,205 @@ const AssignWork: React.FC<AssignWorkProps> = ({
           if (!aIsDefault && bIsDefault) return 1;
           return 0;
       });
-  }, [defaultTeam, currentDayPlan.assignments, allWorkers, currentLanguage]);
+  }, [defaultTeam, currentDayPlan.assignments, allWorkers, currentLanguage, batches]);
 
-  // Calculate Team Stats (Gen/Edit Counts for THIS language)
-  const teamStats = useMemo(() => {
-      let gen = 0;
-      let edit = 0;
-      (currentDayPlan.assignments || []).forEach(t => {
-          const isRelevant = t.taskLanguage === currentLanguage || 
-                             (!t.taskLanguage && workers.some(w => w.id === t.workerId));
-          if (isRelevant) {
-              gen += t.generations;
-              edit += t.edits;
-          }
-      });
-      return { gen, edit };
-  }, [currentDayPlan.assignments, workers, currentLanguage]);
-
-  // 1. Collect all assigned work per batch globally
-  const assignedWorkByBatch = useMemo(() => {
-    const map: Record<string, { gen: Set<number>, edit: Set<number> }> = {};
-    (plan.schedule || []).forEach(day => {
-      (day.assignments || []).forEach(task => {
-        if (task.batchId && task.batchId !== 'DEFAULT') {
-          if (!map[task.batchId]) {
-            map[task.batchId] = { gen: new Set(), edit: new Set() };
-          }
-          
-          if (task.assignedGenRows) {
-            task.assignedGenRows.trim().split(/[\s,]+/).forEach(s => {
-               const n = parseInt(s);
-               if (!isNaN(n)) map[task.batchId].gen.add(n);
-            });
-          }
-          
-          if (task.assignedEditRows) {
-            task.assignedEditRows.trim().split(/[\s,]+/).forEach(s => {
-               const n = parseInt(s);
-               if (!isNaN(n)) map[task.batchId].edit.add(n);
-            });
-          }
-        }
-      });
-    });
-    return map;
-  }, [plan.schedule]);
-
-  // --- PENDING STATS CALCULATION ---
-  const pendingStats = useMemo(() => {
-    const aiGenRows: Record<string, number[]> = {};
-    const aiEditRows: Record<string, number[]> = {};
-    const normalEditRows: Record<string, number[]> = {};
-
-    // 2. Iterate Active Batches for current language (Excluding completed batches)
-    const relevantBatches = batches.filter(b => 
-        b.status === 'active' && 
-        (b.language || 'Telugu') === currentLanguage &&
-        (b.progress || 0) < 100 // Exclude 100% completed
-    );
-
-    relevantBatches.forEach(batch => {
-      const totalCount = batch.aiVideos + batch.normalVideos;
-      const bName = batch.batchName;
+  const activeBatches = useMemo(() => {
+      let active = batches.filter(b => b.status === 'active' && (b.language || 'Telugu') === currentLanguage);
       
-      if (!aiGenRows[bName]) aiGenRows[bName] = [];
-      if (!aiEditRows[bName]) aiEditRows[bName] = [];
-      if (!normalEditRows[bName]) normalEditRows[bName] = [];
-
-      const parseRows = (str?: string) => {
-          const set = new Set<number>();
-          if (!str) return set;
-          str.trim().split(/[\s,]+/).forEach(s => {
-              const n = parseInt(s);
-              if (!isNaN(n)) set.add(n);
-          });
-          return set;
-      };
-
-      const dummies = parseRows(batch.dummyRows);
-      const normals = parseRows(batch.normalRows);
-      const assigned = assignedWorkByBatch[batch.id] || { gen: new Set(), edit: new Set() };
-
-      let minRow = batch.startRow !== undefined ? batch.startRow : 2;
-      let maxRow = batch.endRow !== undefined ? batch.endRow : totalCount + 1;
-
-      for (let i = minRow; i <= maxRow; i++) {
-          if (dummies.has(i)) continue; // Skip dummies
-
-          const isNormal = normals.has(i);
-
-          if (isNormal) {
-              // Normal Video: Needs Edit only
-              if (!assigned.edit.has(i)) normalEditRows[bName].push(i);
-          } else {
-              // AI Video: Needs Gen AND Edit
-              if (!assigned.gen.has(i)) aiGenRows[bName].push(i);
-              if (!assigned.edit.has(i)) aiEditRows[bName].push(i);
-          }
-      }
-    });
-
-    return { aiGenRows, aiEditRows, normalEditRows };
-  }, [batches, currentLanguage, assignedWorkByBatch]);
-
-  const checkDuplicateRows = (inputStr: string, batchId: string | undefined, type: 'gen' | 'edit', currentTaskId: string | undefined) => {
-    if (!inputStr || !batchId || batchId === 'DEFAULT' || batchId === 'LEAVE') return inputStr;
-    
-    const batch = batches.find(b => b.id === batchId);
-    if (!batch) return inputStr;
-
-    const totalRows = batch.aiVideos + batch.normalVideos;
-    const maxRow = batch.endRow !== undefined ? batch.endRow : totalRows + 1;
-    const minRow = batch.startRow !== undefined ? batch.startRow : 2;
-
-    const inputNumbers = inputStr.split(/[\s,]+/).map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
-    if (inputNumbers.length === 0) return inputStr;
-
-    const warnings: string[] = [];
-    const duplicates = new Set<number>();
-    const outOfBounds: number[] = [];
-
-    inputNumbers.forEach(n => {
-        if (n < minRow || n > maxRow) {
-            outOfBounds.push(n);
-        }
-    });
-
-    if (outOfBounds.length > 0) {
-        warnings.push(`Row(s) [${outOfBounds.join(', ')}] do not belong to the current batch. The valid range is ${minRow} to ${maxRow}.`);
-    }
-
-    plan.schedule.forEach(day => {
-      (day.assignments || []).forEach(assignment => {
-        if (assignment.batchId === batchId && assignment.id !== currentTaskId) {
-          const existingRowsStr = type === 'gen' 
-            ? (assignment.assignedGenRows || assignment.plannedGenRows || '')
-            : (assignment.assignedEditRows || assignment.plannedEditRows || '');
-            
-          const existingNumbers = existingRowsStr.split(/[\s,]+/).map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n));
-          
-          const overlap = inputNumbers.filter(n => existingNumbers.includes(n) && !outOfBounds.includes(n));
-          if (overlap.length > 0) {
-            const workerName = workers.find(w => w.id === assignment.workerId)?.name || 'Unknown';
-            const exactDate = getDateFromDayIndex(day.day).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' });
-            warnings.push(`Row(s) [${overlap.join(', ')}] already done by ${workerName} on ${exactDate}.`);
-            overlap.forEach(n => duplicates.add(n));
-          }
-        }
-      });
-    });
-
-    if (warnings.length > 0) {
-      // The user requested a browser alert, but system prompt forbids it. 
-      // We will use a custom modal if available, or just console.error and let the user know via a custom toast.
-      // Since we don't have a toast, we will use a simple state-based alert or just console.error.
-      // Wait, the system prompt says: "Do NOT use confirm(), window.confirm(), alert() or window.alert() in the code. The code is running in an iframe and the user will NOT see the confirmation dialog or alerts. Instead, use custom modal UI for these."
-      // I will add a state for `duplicateWarning` and show a modal.
-      setDuplicateWarning(warnings.join('\n\n'));
+      const ongoing = active.filter(b => (b.progress || 0) < 100);
+      const completed = active.filter(b => (b.progress || 0) === 100);
       
-      const cleanNumbers = inputNumbers.filter(n => !duplicates.has(n) && !outOfBounds.includes(n));
-      return cleanNumbers.join(' ');
-    }
-    
-    return inputStr;
-  };
-
-  const validateRowInput = (value: string, batchId?: string, type?: 'gen' | 'edit') => {
-      if (!batchId || batchId === 'DEFAULT' || batchId === 'LEAVE') return value;
-      
-      const batch = batches.find(b => b.id === batchId);
-      if (!batch) return value;
-
-      const totalRows = batch.aiVideos + batch.normalVideos;
-      const maxRow = batch.endRow !== undefined ? batch.endRow : totalRows + 1;
-      const minRow = batch.startRow !== undefined ? batch.startRow : 2;
-
-      // Parse normals
-      const normalSet = new Set<number>();
-      if (batch.normalRows) {
-          batch.normalRows.trim().split(/[\s,]+/).forEach(s => {
-              const n = parseInt(s);
-              if (!isNaN(n)) normalSet.add(n);
-          });
-      }
-
-      // Parse dummies
-      const dummySet = new Set<number>();
-      if (batch.dummyRows) {
-          batch.dummyRows.trim().split(/[\s,]+/).forEach(s => {
-              const n = parseInt(s);
-              if (!isNaN(n)) dummySet.add(n);
-          });
-      }
-
-      const validNumbers: number[] = [];
-      const parts = value.split(/[\s,]+/);
-      
-      parts.forEach(part => {
-          // Check for range format "start-end"
-          if (part.includes('-')) {
-              const [startStr, endStr] = part.split('-');
-              const start = parseInt(startStr);
-              const end = parseInt(endStr);
-              
-              if (!isNaN(start) && !isNaN(end) && start <= end) {
-                  for (let i = start; i <= end; i++) {
-                      if (i >= minRow && i <= maxRow) {
-                          validNumbers.push(i);
-                      }
-                  }
-              }
-          } else {
-              const n = parseInt(part);
-              if (!isNaN(n)) {
-                  if (n >= minRow && n <= maxRow) {
-                      validNumbers.push(n);
-                  }
-              }
-          }
+      completed.sort((a, b) => {
+          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return timeB - timeA;
       });
-
-      // Filter based on logic
-      const filtered = validNumbers.filter(n => {
-          if (dummySet.has(n)) return false; // Filter out dummies
-          
-          const isNormal = normalSet.has(n);
-          
-          if (type === 'edit') {
-              // If AI video (not normal), check if Gen is assigned/done
-              if (!isNormal) {
-                  const assigned = assignedWorkByBatch[batchId];
-                  // Must be in assigned.gen to be valid for edit assignment
-                  // "take the rows ... which are already marked as done"
-                  if (assigned && assigned.gen.has(n)) {
-                      return true;
-                  }
-                  return false; 
-              }
-          }
-          return true;
+      
+      ongoing.sort((a, b) => {
+          const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return timeB - timeA;
       });
+      
+      return [...ongoing, ...completed];
+  }, [batches, currentLanguage]);
 
-      // Remove duplicates and sort
-      const unique = Array.from(new Set(filtered)).sort((a, b) => a - b);
-      return unique.join(' ');
-  };
+  const displayBatches = useMemo(() => {
+      const ongoing = activeBatches.filter(b => (b.progress || 0) < 100);
+      const completed = activeBatches.filter(b => (b.progress || 0) === 100);
+      const lastCompleted = completed.length > 0 ? [completed[0]] : [];
+      return [...ongoing, ...lastCompleted];
+  }, [activeBatches]);
 
-  const renderPendingSection = (data: Record<string, number[]>, title: string, icon: React.ReactNode, badgeColor: string) => {
-      const batchesList = Object.keys(data).filter(k => data[k].length > 0);
-      const totalPending = batchesList.reduce((sum, k) => sum + data[k].length, 0);
-
-      return (
-        <div className="flex flex-col bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm shrink-0">
-            <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                <div className="flex items-center gap-2">
-                    {icon}
-                    <span className="text-[10px] font-bold uppercase text-slate-600">{title}</span>
-                </div>
-                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md text-white ${badgeColor}`}>
-                    {totalPending}
-                </span>
-            </div>
-            {totalPending > 0 ? (
-                <div className="p-2 space-y-2 overflow-y-auto max-h-[150px] custom-scrollbar">
-                    {batchesList.map(batchName => (
-                        <div key={batchName}>
-                             <div className="flex justify-between items-center mb-0.5">
-                                 <span className="text-[10px] font-bold text-slate-700 truncate max-w-[70%]" title={batchName}>{batchName}</span>
-                                 <span className="text-[9px] font-bold text-slate-400">{data[batchName].length} rows</span>
-                             </div>
-                             <div className="text-[10px] font-mono text-slate-500 bg-slate-50 p-1.5 rounded border border-slate-100 break-all leading-snug">
-                                 {data[batchName].join(' ')}
-                             </div>
-                        </div>
-                    ))}
-                </div>
-            ) : (
-                <div className="p-3 text-center text-[10px] text-slate-400 italic">
-                    No pending items
-                </div>
-            )}
-        </div>
-      );
-  };
-
-  const availableToAdd = useMemo(() => {
-     const displayedIds = new Set(displayedWorkers.map(w => w.id));
-     return allWorkers.filter(w => !displayedIds.has(w.id));
-  }, [allWorkers, displayedWorkers]);
-
-  const activeBatches = (batches || []).filter(b => b.status === 'active');
-
-  const getDefaultBatchId = () => {
-    const langBatches = (batches || []).filter(b => 
-      (b.language || 'Telugu') === currentLanguage && 
-      b.status === 'active'
-    );
-    
-    if (langBatches.length === 0) return 'DEFAULT';
-
-    // Sort: prioritize those not finished (< 100%), then by newest
-    const sorted = [...langBatches].sort((a, b) => {
-      const aFinished = (a.progress || 0) >= 100;
-      const bFinished = (b.progress || 0) >= 100;
-      if (aFinished !== bFinished) return aFinished ? 1 : -1;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-
-    return sorted[0].id;
-  };
-
+  // Calendar logic
   const goToPreviousWeek = () => {
-    const newDate = new Date(viewDate);
-    newDate.setDate(viewDate.getDate() - 7);
-    setViewDate(newDate);
+      const newDate = new Date(viewDate);
+      newDate.setDate(viewDate.getDate() - 7);
+      setViewDate(newDate);
   };
-  const goToNextWeek = () => {
-    const newDate = new Date(viewDate);
-    newDate.setDate(viewDate.getDate() + 7);
-    setViewDate(newDate);
-  };
-  const currentCalendarDate = getDateFromDayIndex(selectedDay);
 
-  const handleUpdate = (task: TaskAssignment, field: 'batchId' | 'assignedGenRows' | 'assignedEditRows' | 'plannedGenRows' | 'plannedEditRows', value: any) => {
-      const newPlan = { ...plan, schedule: [...plan.schedule] };
-      let dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
+  const goToNextWeek = () => {
+      const newDate = new Date(viewDate);
+      newDate.setDate(viewDate.getDate() + 7);
+      setViewDate(newDate);
+  };
+
+  const handlePrevDay = () => {
+      if (selectedDay > 1) {
+          setSelectedDay(selectedDay - 1);
+          setViewDate(getDateFromDayIndex(selectedDay - 1));
+      }
+  };
+
+  const handleNextDay = () => {
+      setSelectedDay(selectedDay + 1);
+      setViewDate(getDateFromDayIndex(selectedDay + 1));
+  };
+
+  const renderCalendar = () => {
+      const startDate = new Date(viewDate);
+      startDate.setDate(viewDate.getDate() - viewDate.getDay());
+      const days = [];
+      for (let i = 0; i < 7; i++) {
+          const d = new Date(startDate);
+          d.setDate(startDate.getDate() + i);
+          const dayIdx = getDayIndexFromDate(d);
+          const isSelected = dayIdx === selectedDay;
+          const isToday = dayIdx === getTodayIndex();
+          const dayPlan = plan.schedule.find(p => p.day === dayIdx);
+          const hasAssignments = dayPlan && dayPlan.assignments && dayPlan.assignments.length > 0;
+          
+          days.push(
+              <button
+                  key={i}
+                  onClick={() => {
+                      setSelectedDay(dayIdx);
+                      setViewDate(d);
+                  }}
+                  className={`flex flex-col items-center p-2 rounded-xl border transition-all ${
+                      isSelected 
+                          ? 'bg-[#F26C21] border-[#F26C21] text-white shadow-md transform scale-105' 
+                          : isToday
+                              ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-400 hover:bg-orange-100 dark:hover:bg-orange-900/40'
+                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-[#F26C21] hover:shadow-sm'
+                  }`}
+              >
+                  <span className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${isSelected ? 'text-orange-100' : 'text-slate-400 dark:text-slate-500'}`}>
+                      {d.toLocaleString('default', { weekday: 'short' })}
+                  </span>
+                  <span className={`text-lg font-black ${isSelected ? 'text-white' : 'text-slate-700 dark:text-slate-200'}`}>
+                      {d.getDate()}
+                  </span>
+                  <div className="flex gap-1 mt-1 h-1.5">
+                      {hasAssignments && <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-blue-400'}`}></div>}
+                  </div>
+              </button>
+          );
+      }
+      return days;
+  };
+
+  const parseDummies = (dummyStr?: string) => {
+      if (!dummyStr) return new Set<number>();
+      return new Set(dummyStr.split(/[\s,]+/).map(Number).filter(n => !isNaN(n)));
+  };
+
+  const parseNormalRows = (str?: string) => {
+      if (!str) return new Set<number>();
+      return new Set(str.split(/[\s,]+/).map(Number).filter(n => !isNaN(n)));
+  };
+
+  const formatRows = (rows: number[]) => {
+      if (rows.length === 0) return '';
+      rows.sort((a, b) => a - b);
+      const ranges: string[] = [];
+      let start = rows[0];
+      let end = rows[0];
+      for (let i = 1; i < rows.length; i++) {
+          if (rows[i] === end + 1) {
+              end = rows[i];
+          } else {
+              ranges.push(start === end ? `${start}` : `${start}-${end}`);
+              start = rows[i];
+              end = rows[i];
+          }
+      }
+      ranges.push(start === end ? `${start}` : `${start}-${end}`);
+      return ranges.join(', ');
+  };
+
+  const countValidRows = (str: string, dummySet: Set<number>) => {
+      if (!str) return 0;
+      const tokens = str.trim().split(/[\s,]+/).filter(Boolean);
+      let count = 0;
+      tokens.forEach(t => {
+          const n = parseInt(t);
+          if (!isNaN(n) && !dummySet.has(n)) {
+              count++;
+          }
+      });
+      return count;
+  };
+
+  const getPendingRowsForBatch = (batch: Batch) => {
+      const dummySet = parseDummies(batch.dummyRows);
+      const normalSet = parseNormalRows(batch.normalRows);
+      
+      const assignedGenRows = new Set<number>();
+      const assignedEditRows = new Set<number>();
+      
+      plan.schedule.forEach(day => {
+          day.assignments.forEach(task => {
+              if (task.batchId === batch.id) {
+                  if (task.assignedGenRows) {
+                      task.assignedGenRows.trim().split(/[\s,]+/).forEach(t => {
+                          const n = parseInt(t);
+                          if (!isNaN(n)) assignedGenRows.add(n);
+                      });
+                  }
+                  if (task.assignedEditRows) {
+                      task.assignedEditRows.trim().split(/[\s,]+/).forEach(t => {
+                          const n = parseInt(t);
+                          if (!isNaN(n)) assignedEditRows.add(n);
+                      });
+                  }
+              }
+          });
+      });
+      
+      const start = batch.startRow || 1;
+      const end = batch.endRow || (batch.aiVideos + batch.normalVideos);
+      
+      const pendingGen: number[] = [];
+      const pendingEdit: number[] = [];
+      const pendingNormal: number[] = [];
+      
+      for (let i = start; i <= end; i++) {
+          if (dummySet.has(i)) continue;
+          
+          if (normalSet.has(i)) {
+              if (!assignedEditRows.has(i)) {
+                  pendingNormal.push(i);
+              }
+          } else {
+              if (!assignedGenRows.has(i)) {
+                  pendingGen.push(i);
+              }
+              if (!assignedEditRows.has(i)) {
+                  pendingEdit.push(i);
+              }
+          }
+      }
+      
+      return { pendingGen, pendingEdit, pendingNormal };
+  };
+
+  const handleUpdate = (task: TaskAssignment, field: 'plannedGenerations' | 'plannedEdits' | 'batchId' | 'plannedGenRows' | 'plannedEditRows' | 'notes', value: any) => {
+      const newPlan = { ...plan };
+      const dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
       
       if (dayIdx === -1) {
-          const newDayEntry = {
+          const newDay: any = {
               day: selectedDay,
               assignments: [],
               dailyTotalGen: 0,
@@ -458,12 +308,11 @@ const AssignWork: React.FC<AssignWorkProps> = ({
               locked: false,
               lockedTeams: []
           };
-          newPlan.schedule.push(newDayEntry);
-          newPlan.schedule.sort((a, b) => a.day - b.day);
-          dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
+          newPlan.schedule.push(newDay);
       }
       
-      const newDay = { ...newPlan.schedule[dayIdx], assignments: [...(newPlan.schedule[dayIdx].assignments || [])] };
+      const updatedDayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
+      const newDay = { ...newPlan.schedule[updatedDayIdx], assignments: [...(newPlan.schedule[updatedDayIdx].assignments || [])] };
       
       let taskIdx = -1;
       if (task.id) {
@@ -478,102 +327,112 @@ const AssignWork: React.FC<AssignWorkProps> = ({
           if (field === 'batchId') {
               if (value === 'LEAVE') {
                   updatedTask.isOnLeave = true;
-                  updatedTask.plannedGenerations = 0;
-                  updatedTask.plannedEdits = 0;
+                  updatedTask.isHalfDay = false;
                   updatedTask.batchId = undefined;
-                  
-                  newDay.assignments[taskIdx] = updatedTask;
-                  newPlan.schedule[dayIdx] = newDay;
-                  
-                  if (onToggleLeave) {
-                      onToggleLeave(task.workerId, selectedDay, true, newPlan);
-                      return;
-                  }
-              } else {
-                  if (updatedTask.isOnLeave) {
-                      updatedTask.isOnLeave = false;
-                      updatedTask.batchId = value;
-                      
-                      newDay.assignments[taskIdx] = updatedTask;
-                      newPlan.schedule[dayIdx] = newDay;
-                      
-                      if (onToggleLeave) {
-                          onToggleLeave(task.workerId, selectedDay, false, newPlan);
-                          return;
-                      }
-                  }
+                  if (onToggleLeave) onToggleLeave(task.workerId, selectedDay, true, newPlan);
+              } else if (value === 'HALF_DAY') {
                   updatedTask.isOnLeave = false;
+                  updatedTask.isHalfDay = true;
+                  updatedTask.batchId = undefined;
+                  if (onToggleLeave) onToggleLeave(task.workerId, selectedDay, true, newPlan, 0.5);
+              } else {
+                  if (updatedTask.isOnLeave || updatedTask.isHalfDay) {
+                      updatedTask.isOnLeave = false;
+                      updatedTask.isHalfDay = false;
+                      if (onToggleLeave) onToggleLeave(task.workerId, selectedDay, false, newPlan);
+                  }
                   updatedTask.batchId = value;
               }
+              updatedTask.plannedGenRows = '';
+              updatedTask.plannedEditRows = '';
+              updatedTask.plannedGenerations = 0;
+              updatedTask.plannedEdits = 0;
           } else if (field === 'plannedGenRows' || field === 'plannedEditRows') {
              updatedTask[field] = value;
-             const rowString = value as string;
-             const count = rowString.trim() === '' ? 0 : rowString.trim().split(/[\s,]+/).filter(Boolean).length;
-             
+             const batch = batches.find(b => b.id === updatedTask.batchId);
+             const dummySet = batch ? parseDummies(batch.dummyRows) : new Set<number>();
+             const count = countValidRows(value, dummySet);
              if (field === 'plannedGenRows') updatedTask.plannedGenerations = count;
              if (field === 'plannedEditRows') updatedTask.plannedEdits = count;
           } else {
               updatedTask[field] = value;
           }
+          
           newDay.assignments[taskIdx] = updatedTask;
       } else {
           const newTask: TaskAssignment = {
-              ...task,
-              id: task.id || Math.random().toString(36).substr(2, 9),
-              [field]: value
+              id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+              workerId: task.workerId,
+              person: task.person,
+              role: task.role,
+              generations: 0,
+              edits: 0,
+              plannedGenerations: 0,
+              plannedEdits: 0,
+              isOnLeave: field === 'batchId' && value === 'LEAVE',
+              isHalfDay: field === 'batchId' && value === 'HALF_DAY',
+              batchId: (field === 'batchId' && value !== 'LEAVE' && value !== 'HALF_DAY') ? value : undefined,
+              plannedGenRows: field === 'plannedGenRows' ? value : '',
+              plannedEditRows: field === 'plannedEditRows' ? value : '',
+              taskLanguage: currentLanguage
           };
+
+          if (field === 'batchId') {
+              if (value === 'LEAVE' && onToggleLeave) {
+                  newDay.assignments.push(newTask);
+                  newPlan.schedule[updatedDayIdx] = newDay;
+                  onToggleLeave(task.workerId, selectedDay, true, newPlan);
+                  return;
+              }
+              if (value === 'HALF_DAY' && onToggleLeave) {
+                  newDay.assignments.push(newTask);
+                  newPlan.schedule[updatedDayIdx] = newDay;
+                  onToggleLeave(task.workerId, selectedDay, true, newPlan, 0.5);
+                  return;
+              }
+          }
+          
           if (field === 'plannedGenRows') {
-             const rowString = value as string;
-             const count = rowString.trim() === '' ? 0 : rowString.trim().split(/[\s,]+/).filter(Boolean).length;
-             newTask.plannedGenerations = count;
+             const batch = batches.find(b => b.id === newTask.batchId);
+             const dummySet = batch ? parseDummies(batch.dummyRows) : new Set<number>();
+             newTask.plannedGenerations = countValidRows(value, dummySet);
+          } else if (field === 'plannedEditRows') {
+             const batch = batches.find(b => b.id === newTask.batchId);
+             const dummySet = batch ? parseDummies(batch.dummyRows) : new Set<number>();
+             newTask.plannedEdits = countValidRows(value, dummySet);
+          } else if (field === 'plannedGenerations' || field === 'plannedEdits') {
+              newTask[field] = value;
           }
-          if (field === 'plannedEditRows') {
-            const rowString = value as string;
-            const count = rowString.trim() === '' ? 0 : rowString.trim().split(/[\s,]+/).filter(Boolean).length;
-            newTask.plannedEdits = count;
-          }
+          
           newDay.assignments.push(newTask);
       }
 
-      newDay.dailyTotalGen = newDay.assignments.reduce((sum, t) => sum + t.generations, 0);
-      newDay.dailyTotalEdit = newDay.assignments.reduce((sum, t) => sum + t.edits, 0);
-      newPlan.schedule[dayIdx] = newDay;
+      newPlan.schedule[updatedDayIdx] = newDay;
       
-      newPlan.summary = {
-          ...newPlan.summary,
-          totalGenerations: newPlan.schedule.reduce((sum, d) => sum + d.dailyTotalGen, 0),
-          totalEdits: newPlan.schedule.reduce((sum, d) => sum + d.dailyTotalEdit, 0)
-      };
-
-      onUpdatePlan(newPlan, true, selectedDay, task.id || task.workerId);
-  };
-
-  const copyGenToEdit = (task: TaskAssignment) => {
-      if (!task.plannedGenRows) return;
-      handleUpdate(task, 'plannedEditRows', task.plannedGenRows);
+      const finalAssignmentId = taskIdx !== -1 ? newDay.assignments[taskIdx].id : newDay.assignments[newDay.assignments.length - 1].id;
+      onUpdatePlan(newPlan, true, selectedDay, finalAssignmentId || task.workerId);
   };
 
   const addSplitAssignment = (worker: Worker) => {
-      const newPlan = { ...plan, schedule: [...plan.schedule] };
-      let dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
+      const newPlan = { ...plan };
+      const dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
       
       if (dayIdx === -1) {
-           const newDayEntry = {
+          newPlan.schedule.push({
               day: selectedDay,
               assignments: [],
               dailyTotalGen: 0,
               dailyTotalEdit: 0,
               locked: false,
               lockedTeams: []
-          };
-          newPlan.schedule.push(newDayEntry);
-          newPlan.schedule.sort((a, b) => a.day - b.day);
-          dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
+          });
       }
-
-      const newDay = { ...newPlan.schedule[dayIdx], assignments: [...(newPlan.schedule[dayIdx].assignments || [])] };
+      
+      const updatedDayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
+      const newDay = { ...newPlan.schedule[updatedDayIdx], assignments: [...(newPlan.schedule[updatedDayIdx].assignments || [])] };
+      
       const newAssignment: TaskAssignment = {
-          id: Math.random().toString(36).substr(2, 9),
+          id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
           workerId: worker.id,
           person: worker.name,
           role: worker.role,
@@ -581,372 +440,349 @@ const AssignWork: React.FC<AssignWorkProps> = ({
           edits: 0,
           plannedGenerations: 0,
           plannedEdits: 0,
-          isOnLeave: false,
-          batchId: getDefaultBatchId(),
           plannedGenRows: '',
           plannedEditRows: '',
-          assignedGenRows: '',
-          assignedEditRows: '',
-          taskLanguage: currentLanguage 
+          taskLanguage: currentLanguage
       };
       
       newDay.assignments.push(newAssignment);
-      newPlan.schedule[dayIdx] = newDay;
+      newPlan.schedule[updatedDayIdx] = newDay;
       onUpdatePlan(newPlan, true, selectedDay, newAssignment.id);
-      setShowAddWorkerModal(false);
   };
 
   const removeAssignment = (assignmentId: string) => {
-      const newPlan = { ...plan, schedule: [...plan.schedule] };
+      const newPlan = { ...plan };
       const dayIdx = newPlan.schedule.findIndex(d => d.day === selectedDay);
       if (dayIdx === -1) return;
-
+      
       const newDay = { ...newPlan.schedule[dayIdx] };
       newDay.assignments = (newDay.assignments || []).filter(t => t.id !== assignmentId);
       
-      newDay.dailyTotalGen = newDay.assignments.reduce((sum, t) => sum + t.generations, 0);
-      newDay.dailyTotalEdit = newDay.assignments.reduce((sum, t) => sum + t.edits, 0);
       newPlan.schedule[dayIdx] = newDay;
-
-      newPlan.summary = {
-          ...newPlan.summary,
-          totalGenerations: newPlan.schedule.reduce((sum, d) => sum + d.dailyTotalGen, 0),
-          totalEdits: newPlan.schedule.reduce((sum, d) => sum + d.dailyTotalEdit, 0)
-      };
-
       onUpdatePlan(newPlan, true, selectedDay, assignmentId, true);
   };
 
-  const handleSave = () => {
-    setSaveState('saving');
-    onUpdatePlan(plan, true, selectedDay);
-    setTimeout(() => setSaveState('saved'), 800);
-    setTimeout(() => setSaveState('idle'), 2500);
-  };
-
-  const renderCalendar = () => {
-    const startOfWeek = new Date(viewDate);
-    startOfWeek.setDate(viewDate.getDate() - viewDate.getDay());
-    const days = [];
-    for (let i = 7; i < 7 + 7; i++) { // Using 7 to 14 loop index to ensure unique keys in case of rapid re-renders/key reuse issues, though simple i is fine usually. Reverting to standard loop.
-    }
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(startOfWeek);
-      date.setDate(startOfWeek.getDate() + i);
-      const dayIdx = getDayIndexFromDate(date);
-      const dayPlan = plan.schedule.find(p => p.day === dayIdx);
-      const isSelected = selectedDay === dayIdx;
-      const hasData = !!dayPlan;
-      const isLocked = isDayLockedForTeam(dayPlan);
-
-      days.push(
-        <button
-          key={i}
-          onClick={() => {
-              if (dayIdx >= 1) {
-                  setSelectedDay(dayIdx);
-                  setViewDate(date);
-              }
-          }}
-          className={`h-14 border relative flex flex-col items-center justify-center transition-all group rounded-xl ${
-            isSelected 
-                ? 'bg-[#F26C21] border-[#F26C21] text-white shadow-md z-10 scale-105'
-                : hasData
-                  ? isLocked 
-                    ? 'bg-emerald-50 border-emerald-100'
-                    : 'bg-white border-slate-200 hover:border-orange-200'
-                  : 'bg-slate-50 border-slate-100 opacity-50 cursor-default'
-          }`}
-          disabled={dayIdx < 1}
-        >
-          <span className={`text-[10px] uppercase font-bold mb-0.5 ${isSelected ? 'text-orange-100' : 'text-slate-400'}`}>
-              {date.toLocaleDateString('en-US', { weekday: 'short' })}
-          </span>
-          <span className={`text-lg font-black ${isSelected ? 'text-white' : hasData ? 'text-slate-700' : 'text-slate-400'}`}>
-              {date.getDate()}
-          </span>
-          
-          {(hasData || isSelected) && (
-            <div className="absolute top-1.5 right-1.5">
-               {isLocked ? (
-                   <CheckCircle size={10} className={isSelected ? 'text-white' : 'text-emerald-500'} />
-               ) : (
-                   <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-white' : 'bg-[#F26C21]'}`}></div>
-               )}
-            </div>
-          )}
-        </button>
-      );
-    }
-    return days;
-  };
-
   return (
-    <div className="h-full flex flex-col animate-fade-in relative">
-        {/* ADD WORKER MODAL */}
-        {showAddWorkerModal && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-                <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden flex flex-col max-h-[80%]">
-                    <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                        <h3 className="font-bold text-slate-800">Add Contributor for Day {selectedDay}</h3>
-                        <button onClick={() => setShowAddWorkerModal(false)} className="text-slate-400 hover:text-slate-600"><X size={20}/></button>
-                    </div>
-                    <div className="p-2 overflow-y-auto custom-scrollbar flex-1">
-                        {availableToAdd.length === 0 ? (
-                            <div className="text-center py-8 text-slate-400 text-sm">No other workers available to add.</div>
-                        ) : (
-                            <div className="space-y-1">
-                                {availableToAdd.map(w => (
-                                    <button 
-                                        key={w.id}
-                                        onClick={() => addSplitAssignment(w)}
-                                        className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-slate-50 border border-transparent hover:border-slate-100 transition-all group"
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm ${
-                                                w.role === 'Intern' ? 'bg-purple-400' : 
-                                                w.role === 'Assist' ? 'bg-orange-400' : 
-                                                w.role === 'Manager' ? 'bg-emerald-500' :
-                                                w.role === 'TL' ? 'bg-teal-500' :
-                                                'bg-blue-500'
-                                            }`}>
-                                                {w.name.charAt(0)}
-                                            </div>
-                                            <div className="text-left">
-                                                <div className="text-sm font-bold text-slate-700">{w.name}</div>
-                                                <div className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
-                                                    <span>{w.role}</span> • <span>{w.language || 'Telugu'}</span>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="text-slate-300 group-hover:text-blue-500"><Plus size={16} /></div>
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        )}
-
-        <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-950 overflow-hidden transition-colors">
+        <div className="flex-1 min-h-0 flex flex-col lg:grid lg:grid-cols-12 gap-6 overflow-y-auto lg:overflow-hidden custom-scrollbar">
             
-            {/* Left Column: Calendar & Filters */}
-            <div className="lg:col-span-4 h-full flex flex-col gap-4 overflow-hidden">
-                <div className="flex-none flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                        <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+            {/* Left Column (Calendar & Pending) */}
+            <div className="lg:col-span-4 flex flex-col gap-4 shrink-0 lg:h-full lg:overflow-y-auto lg:custom-scrollbar">
+                <div className="flex-none flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
+                    <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50 transition-colors">
+                        <h2 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                             <CalendarIcon className="text-[#F26C21]" size={16} />
                             {viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
                         </h2>
                         <div className="flex gap-1">
-                            <button onClick={goToPreviousWeek} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronLeft size={16} /></button>
-                            <button onClick={goToNextWeek} className="p-1 hover:bg-slate-200 rounded text-slate-500"><ChevronRight size={16} /></button>
+                            <button onClick={goToPreviousWeek} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-500 dark:text-slate-400"><ChevronLeft size={16} /></button>
+                            <button onClick={goToNextWeek} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-500 dark:text-slate-400"><ChevronRight size={16} /></button>
                         </div>
                     </div>
-                    <div className="p-2 bg-slate-50">
+                    <div className="p-2 bg-slate-50 dark:bg-slate-900 transition-colors">
                         <div className="grid grid-cols-7 gap-1.5">
                             {renderCalendar()}
                         </div>
                     </div>
                 </div>
 
-                {/* Pending Sections (Moved here) */}
-                <div className="flex-1 min-h-0 flex flex-col gap-3 overflow-y-auto custom-scrollbar pr-1 pb-2">
-                    {renderPendingSection(pendingStats.aiGenRows, 'Pending Gen', <Zap size={14} className="text-purple-500"/>, 'bg-purple-500')}
-                    {renderPendingSection(pendingStats.aiEditRows, 'Pending AI Edit', <FileVideo size={14} className="text-blue-500"/>, 'bg-blue-500')}
-                    {renderPendingSection(pendingStats.normalEditRows, 'Pending Normal', <Edit3 size={14} className="text-emerald-500"/>, 'bg-emerald-500')}
+                <div className="flex-1 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 overflow-y-auto min-h-0 custom-scrollbar transition-colors">
+                    {(() => {
+                        const pendingData = displayBatches.map(b => ({
+                            batch: b,
+                            pending: getPendingRowsForBatch(b)
+                        }));
+                        
+                        const totalPendingGen = pendingData.reduce((sum, d) => sum + d.pending.pendingGen.length, 0);
+                        const totalPendingEdit = pendingData.reduce((sum, d) => sum + d.pending.pendingEdit.length, 0);
+                        const totalPendingNormal = pendingData.reduce((sum, d) => sum + d.pending.pendingNormal.length, 0);
+
+                        return (
+                            <>
+                                {/* PENDING GEN */}
+                                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col shadow-sm shrink-0 transition-colors">
+                                    <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+                                        <div className="flex items-center gap-2 text-purple-600 dark:text-purple-400 font-black text-xs tracking-widest uppercase">
+                                            <Zap size={14} className="fill-current" /> PENDING GEN
+                                        </div>
+                                        <div className="bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-xs font-black px-2 py-0.5 rounded-md">
+                                            {totalPendingGen}
+                                        </div>
+                                    </div>
+                                    <div className="p-3 flex flex-col gap-4 bg-white dark:bg-slate-900 transition-colors">
+                                        {pendingData.filter(d => d.pending.pendingGen.length > 0).map(d => (
+                                            <div key={d.batch.id} className="flex flex-col gap-1.5">
+                                                <div className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-200">
+                                                    <span>{d.batch.batchName}</span>
+                                                    <span className="text-slate-400 dark:text-slate-500">{d.pending.pendingGen.length} rows</span>
+                                                </div>
+                                                <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-600 dark:text-slate-400 font-mono leading-relaxed tracking-wider transition-colors">
+                                                    {d.pending.pendingGen.join(' ')}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {pendingData.filter(d => d.pending.pendingGen.length > 0).length === 0 && (
+                                            <div className="text-xs text-slate-400 dark:text-slate-600 text-center py-2 font-medium">No pending rows</div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* PENDING AI EDIT */}
+                                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col shadow-sm shrink-0 transition-colors">
+                                    <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+                                        <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-black text-xs tracking-widest uppercase">
+                                            <FileVideo size={14} className="fill-current" /> PENDING AI EDIT
+                                        </div>
+                                        <div className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-black px-2 py-0.5 rounded-md">
+                                            {totalPendingEdit}
+                                        </div>
+                                    </div>
+                                    <div className="p-3 flex flex-col gap-4 bg-white dark:bg-slate-900 transition-colors">
+                                        {pendingData.filter(d => d.pending.pendingEdit.length > 0).map(d => (
+                                            <div key={d.batch.id} className="flex flex-col gap-1.5">
+                                                <div className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-200">
+                                                    <span>{d.batch.batchName}</span>
+                                                    <span className="text-slate-400 dark:text-slate-500">{d.pending.pendingEdit.length} rows</span>
+                                                </div>
+                                                <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-600 dark:text-slate-400 font-mono leading-relaxed tracking-wider transition-colors">
+                                                    {d.pending.pendingEdit.join(' ')}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {pendingData.filter(d => d.pending.pendingEdit.length > 0).length === 0 && (
+                                            <div className="text-xs text-slate-400 dark:text-slate-600 text-center py-2 font-medium">No pending rows</div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* PENDING NORMAL */}
+                                <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col shadow-sm shrink-0 transition-colors">
+                                    <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50">
+                                        <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-black text-xs tracking-widest uppercase">
+                                            <PenTool size={14} className="fill-current" /> PENDING NORMAL
+                                        </div>
+                                        <div className="bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-black px-2 py-0.5 rounded-md">
+                                            {totalPendingNormal}
+                                        </div>
+                                    </div>
+                                    <div className="p-3 flex flex-col gap-4 bg-white dark:bg-slate-900 transition-colors">
+                                        {pendingData.filter(d => d.pending.pendingNormal.length > 0).map(d => (
+                                            <div key={d.batch.id} className="flex flex-col gap-1.5">
+                                                <div className="flex justify-between items-center text-xs font-bold text-slate-700 dark:text-slate-200">
+                                                    <span>{d.batch.batchName}</span>
+                                                    <span className="text-slate-400 dark:text-slate-500">{d.pending.pendingNormal.length} rows</span>
+                                                </div>
+                                                <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-lg p-2.5 text-xs text-slate-600 dark:text-slate-400 font-mono leading-relaxed tracking-wider transition-colors">
+                                                    {d.pending.pendingNormal.join(' ')}
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {pendingData.filter(d => d.pending.pendingNormal.length > 0).length === 0 && (
+                                            <div className="text-xs text-slate-400 dark:text-slate-600 text-center py-2 font-medium">No pending rows</div>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        );
+                    })()}
                 </div>
             </div>
 
-            {/* Right: Assignment List */}
-            <div className="lg:col-span-8 h-full flex flex-col bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden relative">
-                 <div className="p-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between min-h-[72px]">
-                     <div className="flex items-center gap-2 md:gap-4">
-                         <button onClick={handlePrevDay} disabled={selectedDay <= 1} className="lg:hidden p-2 bg-white border border-slate-200 rounded-lg text-slate-500 shadow-sm active:scale-95 disabled:opacity-50">
-                             <ChevronLeft size={18} />
-                         </button>
+            {/* Right Column */}
+            <div className="lg:col-span-8 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden relative transition-colors h-auto lg:h-full min-h-[500px] lg:min-h-0">
+                 <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 flex flex-col gap-3 min-h-[72px] transition-colors">
+                     <div className="flex items-center justify-between">
+                         <div className="flex items-center gap-2 md:gap-4">
+                             <button onClick={handlePrevDay} className="lg:hidden p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-500 dark:text-slate-400 shadow-sm active:scale-95 transition-colors">
+                                 <ChevronLeft size={18} />
+                             </button>
 
-                         <div>
-                             <div className="flex items-center gap-2">
-                                {isCurrentDayLocked && <span className="text-[9px] font-bold uppercase text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded flex gap-1 items-center"><Lock size={8}/> Locked ({currentLanguage})</span>}
+                             <div>
+                                 <div className="flex items-baseline gap-2">
+                                     <h2 className="text-lg md:text-xl font-black text-slate-800 dark:text-white transition-colors">
+                                         <span className="md:hidden">{currentCalendarDate.toLocaleString('default', { weekday: 'short' })}</span>
+                                         <span className="hidden md:inline">{currentCalendarDate.toLocaleString('default', { weekday: 'long' })}</span>
+                                     </h2>
+                                     <span className="text-slate-500 dark:text-slate-400 font-medium text-sm">{currentCalendarDate.toLocaleString('default', { month: 'short', day: 'numeric' })}</span>
+                                 </div>
                              </div>
-                             <div className="flex items-baseline gap-2">
-                                 <h2 className="text-lg md:text-xl font-black text-slate-800">
-                                     <span className="md:hidden">{currentCalendarDate.toLocaleString('default', { weekday: 'short' })}</span>
-                                     <span className="hidden md:inline">{currentCalendarDate.toLocaleString('default', { weekday: 'long' })}</span>
-                                 </h2>
-                                 <span className="text-slate-500 font-medium text-sm">{currentCalendarDate.toLocaleString('default', { month: 'short', day: 'numeric' })}</span>
-                             </div>
+
+                             <button onClick={handleNextDay} className="lg:hidden p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-500 dark:text-slate-400 shadow-sm active:scale-95 transition-colors">
+                                 <ChevronRight size={18} />
+                             </button>
                          </div>
-
-                         {/* Mobile Next */}
-                         <button onClick={handleNextDay} className="lg:hidden p-2 bg-white border border-slate-200 rounded-lg text-slate-500 shadow-sm active:scale-95">
-                             <ChevronRight size={18} />
-                         </button>
-                     </div>
-                     <div className="flex gap-4">
-                        <div className="text-center">
-                            <span className="block text-[10px] uppercase font-bold text-slate-400">Gen</span>
-                            <span className="text-lg font-black text-purple-600">{teamStats.gen}</span>
-                        </div>
-                        <div className="text-center">
-                            <span className="block text-[10px] uppercase font-bold text-slate-400">Edit</span>
-                            <span className="text-lg font-black text-blue-600">{teamStats.edit}</span>
-                        </div>
                      </div>
                  </div>
 
                  {/* Task List */}
-                 <div className="flex-1 overflow-y-auto p-4 space-y-0 custom-scrollbar">
-                     {/* Desktop Header with Add Button */}
-                     <div className="hidden md:grid grid-cols-12 gap-2 px-2 py-2 text-[10px] uppercase font-bold text-slate-400 tracking-wider bg-slate-50/50 border-b border-slate-100 rounded-t-lg items-center">
+                 <div className="flex-1 overflow-y-auto p-4 space-y-0 custom-scrollbar bg-white dark:bg-slate-900 transition-colors">
+                     {/* Desktop Header */}
+                     <div className="hidden md:grid grid-cols-12 gap-2 px-2 py-2 text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider bg-slate-50/50 dark:bg-slate-800/30 border-b border-slate-100 dark:border-slate-800 rounded-t-lg items-center transition-colors">
                          <div className="col-span-3">Editor</div>
                          <div className="col-span-2">Batch</div>
-                         <div className="col-span-2 text-center flex items-center justify-center gap-2">
-                             Gen Rows 
-                             <button 
-                                onClick={() => setShowAddWorkerModal(true)} 
-                                className="md:hidden p-1 bg-white border border-slate-200 rounded-md text-slate-400"
-                            >
-                                <Plus size={10} strokeWidth={4} />
-                            </button>
-                         </div>
+                         <div className="col-span-3 text-center">Generation</div>
+                         <div className="col-span-3 text-center">Editing</div>
                          <div className="col-span-1 text-center"></div>
-                         <div className="col-span-2 text-center">Edit Rows</div>
-                         <div className="col-span-2 text-right">Actions</div>
                      </div>
-                     
-                     {displayedWorkers.length > 0 ? displayedWorkers.map((worker, workerIdx) => {
+
+                     {displayedWorkers.map((worker, workerIdx) => {
                         let workerTasks = (currentDayPlan.assignments || []).filter(t => t.workerId === worker.id);
                         
-                        const relevantTasks = (workerTasks || []).filter(t => {
-                            if (t.taskLanguage) return t.taskLanguage === currentLanguage;
-                            return (worker.language || 'Telugu') === currentLanguage;
-                        });
-
-                        const tasksToRender = relevantTasks.length > 0 ? relevantTasks : [{
+                        if (workerTasks.length === 0) {
+                            workerTasks = [{
                                 workerId: worker.id,
                                 person: worker.name,
                                 role: worker.role,
                                 generations: 0,
                                 edits: 0,
-                                isOnLeave: false,
-                                batchId: getDefaultBatchId(),
-                                assignedGenRows: '',
-                                assignedEditRows: '',
-                                taskLanguage: currentLanguage // Virtual one gets current lang
+                                plannedGenerations: 0,
+                                plannedEdits: 0,
+                                plannedGenRows: '',
+                                plannedEditRows: '',
                             } as TaskAssignment];
+                        }
 
-                        const rowBgClass = workerIdx % 2 === 0 ? 'bg-white' : 'bg-slate-100';
+                        const rowBgClass = workerIdx % 2 === 0 ? 'bg-white dark:bg-slate-900' : 'bg-slate-50/50 dark:bg-slate-800/40';
 
                         return (
-                            <div key={worker.id} className={`p-1 rounded-xl transition-colors ${rowBgClass}`}>
-                                {tasksToRender.map((task, index) => (
-                                    <div key={task.id || `virtual-${index}`} className={`grid grid-cols-12 items-center py-0.5 gap-1 ${index > 0 ? 'mt-1 pt-1 border-t border-slate-200' : ''}`}>
+                            <div key={worker.id} className={`mb-0 p-1 rounded-xl transition-colors ${rowBgClass}`}>
+                                {workerTasks.map((task, index) => (
+                                    <div key={task.id || `virtual-${index}`} className={`grid grid-cols-1 md:grid-cols-12 items-center py-1 gap-2 ${index > 0 ? 'border-t border-slate-200 dark:border-slate-800 mt-1 pt-1' : ''}`}>
                                         
-                                        <div className="col-span-3 flex items-center gap-2 min-w-0 pr-2">
-                                            {index === 0 ? (
-                                                <>
-                                                    <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-sm ${
-                                                        worker.role === 'Intern' ? 'bg-purple-400' : 
-                                                        worker.role === 'Assist' ? 'bg-orange-400' : 
-                                                        worker.role === 'Manager' ? 'bg-emerald-500' :
-                                                        worker.role === 'TL' ? 'bg-teal-500' :
-                                                        'bg-blue-500'
-                                                    }`}>{worker.name.charAt(0)}</div>
-                                                    <div className="min-w-0 flex-1">
-                                                        <div className="text-sm font-bold text-slate-700 truncate" title={worker.name}>{worker.name}</div>
-                                                        <div className="text-[10px] text-slate-400 truncate flex items-center gap-1">
-                                                                {worker.role} {worker.language !== currentLanguage && <span className="bg-slate-200 px-1 rounded text-slate-600">{worker.language}</span>}
+                                        <div className="md:col-span-3 flex items-center gap-2 min-w-0 pr-2">
+                                            <div className="flex items-center gap-3">
+                                                {index === 0 ? (
+                                                    <>
+                                                        <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold text-white shadow-sm ${
+                                                            worker.role === 'Intern' ? 'bg-purple-400' : 
+                                                            worker.role === 'Assist' ? 'bg-orange-400' : 
+                                                            worker.role === 'Manager' ? 'bg-emerald-500' :
+                                                            worker.role === 'TL' ? 'bg-teal-500' :
+                                                            'bg-blue-500'
+                                                        }`}>{worker.name.charAt(0)}</div>
+                                                        <div className="min-w-0">
+                                                            <div className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate" title={worker.name}>{worker.name}</div>
+                                                            <div className="text-[10px] text-slate-400 dark:text-slate-500 truncate flex items-center gap-1">
+                                                                {worker.role}
+                                                            </div>
                                                         </div>
+                                                    </>
+                                                ) : (
+                                                    <div className="flex items-center gap-3 pl-4 opacity-50">
+                                                        <CornerDownRight size={16} className="text-slate-400 dark:text-slate-500" />
+                                                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">Split</span>
                                                     </div>
-                                                </>
-                                            ) : (
-                                                <div className="flex items-center gap-3 pl-4 opacity-50">
-                                                    <CornerDownRight size={16} className="text-slate-300" />
-                                                </div>
-                                            )}
+                                                )}
+                                            </div>
+
+                                            <div className="md:hidden ml-auto">
+                                                {index === 0 ? (
+                                                    <button 
+                                                        onClick={() => addSplitAssignment(worker)}
+                                                        className="p-1.5 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
+                                                        title="Split Task"
+                                                    >
+                                                        <Plus size={16} />
+                                                    </button>
+                                                ) : (
+                                                    <button 
+                                                        onClick={() => task.id && removeAssignment(task.id)}
+                                                        className="p-1.5 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                                                        title="Remove Split"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
 
-                                        <div className="col-span-2 min-w-0">
+                                        <div className="md:col-span-2 flex flex-col justify-center min-w-0">
                                             <select 
-                                                value={task.isOnLeave ? 'LEAVE' : (task.batchId || 'DEFAULT')}
+                                                value={task.isOnLeave ? 'LEAVE' : (task.isHalfDay ? 'HALF_DAY' : (task.batchId || ''))} 
                                                 onChange={(e) => handleUpdate(task, 'batchId', e.target.value)}
-                                                className={`w-full py-1 h-8 px-2 rounded-md text-[10px] font-bold border outline-none cursor-pointer transition-colors bg-white border-slate-200 text-slate-700 hover:border-blue-300 focus:border-blue-500 min-w-0`}
+                                                className={`w-full py-1 h-7 px-2 rounded-md text-xs md:text-[10px] font-bold border outline-none cursor-pointer transition-colors ${
+                                                    (task.isOnLeave || task.isHalfDay)
+                                                    ? (task.isOnLeave ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-500 dark:text-red-400' : 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800 text-orange-500 dark:text-orange-400')
+                                                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-blue-300 dark:hover:border-blue-500 focus:border-blue-500'
+                                                }`}
                                             >
-                                                {activeBatches.map(b => (
+                                                <option value="">Select Batch...</option>
+                                                {displayBatches.filter(b => (b.progress || 0) < 100).map(b => (
                                                     <option key={b.id} value={b.id}>{b.batchName}</option>
                                                 ))}
-                                                <option value="DEFAULT">General</option>
+                                                <option value="OTHER">Other / Learning</option>
                                                 <option value="LEAVE">LEAVE</option>
+                                                <option value="HALF_DAY">Half Day</option>
                                             </select>
                                         </div>
 
-                                        <div className="col-span-2">
-                                            <div className="relative">
+                                        {task.batchId === 'OTHER' ? (
+                                            <div className="md:col-span-6 flex gap-2 items-center">
+                                                <span className="md:hidden text-xs font-bold text-slate-400 dark:text-slate-500 w-12 shrink-0">NOTES</span>
                                                 <input 
                                                     type="text" 
-                                                    value={task.plannedGenRows || ''} 
-                                                    onChange={(e) => handleUpdate(task, 'plannedGenRows', e.target.value)} 
-                                                    onBlur={(e) => {
-                                                        let valid = validateRowInput(e.target.value, task.batchId, 'gen');
-                                                        valid = checkDuplicateRows(valid, task.batchId, 'gen', task.id);
-                                                        if (valid !== e.target.value) {
-                                                            handleUpdate(task, 'plannedGenRows', valid);
-                                                        }
-                                                    }}
-                                                    className={`w-full py-1 h-8 px-2 font-mono text-sm font-bold border border-purple-200 rounded-md outline-none focus:ring-1 focus:ring-purple-400 bg-purple-50/30 text-slate-900 placeholder:text-slate-300 text-center min-w-0`} 
-                                                    placeholder=""
+                                                    placeholder="What are you working on?" 
+                                                    value={task.notes || ''} 
+                                                    onChange={(e) => handleUpdate(task, 'notes', e.target.value)} 
+                                                    className="flex-1 min-w-0 py-1 h-7 px-2 text-left text-xs font-medium border border-slate-200 dark:border-slate-700 rounded-md outline-none focus:ring-1 focus:ring-blue-400 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-600"
                                                 />
                                             </div>
-                                        </div>
+                                        ) : (
+                                            <>
+                                                <div className="md:col-span-3 flex gap-2 items-center min-w-0">
+                                                    <span className="md:hidden text-xs font-bold text-slate-400 dark:text-slate-500 w-8 shrink-0">GEN</span>
+                                                    <input 
+                                                        type="number" 
+                                                        min="0"
+                                                        value={task.plannedGenerations || 0} 
+                                                        onChange={(e) => handleUpdate(task, 'plannedGenerations', parseInt(e.target.value) || 0)} 
+                                                        className="no-spinner w-12 py-1 h-7 px-1 text-center font-mono text-sm font-bold bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-800 rounded-md outline-none focus:ring-1 focus:ring-purple-400 focus:bg-white dark:focus:bg-slate-700 transition-all text-slate-900 dark:text-slate-100"
+                                                    />
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="e.g. 1-5" 
+                                                        value={task.plannedGenRows || ''} 
+                                                        onChange={(e) => handleUpdate(task, 'plannedGenRows', e.target.value)} 
+                                                        className="flex-1 min-w-0 py-1 h-7 px-2 text-left font-mono text-xs font-bold border border-purple-200 dark:border-purple-800 rounded-md outline-none focus:ring-1 focus:ring-purple-400 bg-purple-50/30 dark:bg-purple-900/10 text-slate-900 dark:text-slate-100 placeholder:text-slate-300 dark:placeholder:text-slate-700"
+                                                    />
+                                                </div>
 
-                                        <div className="col-span-1 flex justify-center">
-                                            <button 
-                                                onClick={() => copyGenToEdit(task)}
-                                                className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                                                title="Copy Gen to Edit"
-                                            >
-                                                =
-                                            </button>
-                                        </div>
+                                                <div className="md:col-span-3 flex gap-2 items-center min-w-0">
+                                                    <span className="md:hidden text-xs font-bold text-slate-400 dark:text-slate-500 w-8 shrink-0">EDIT</span>
+                                                    <input 
+                                                        type="number" 
+                                                        min="0"
+                                                        value={task.plannedEdits || 0} 
+                                                        onChange={(e) => handleUpdate(task, 'plannedEdits', parseInt(e.target.value) || 0)} 
+                                                        className="no-spinner w-12 py-1 h-7 px-1 text-center font-mono text-sm font-bold bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 rounded-md outline-none focus:ring-1 focus:ring-blue-400 focus:bg-white dark:focus:bg-slate-700 transition-all text-slate-900 dark:text-slate-100"
+                                                    />
+                                                    <input 
+                                                        type="text" 
+                                                        placeholder="e.g. 1-5" 
+                                                        value={task.plannedEditRows || ''} 
+                                                        onChange={(e) => handleUpdate(task, 'plannedEditRows', e.target.value)} 
+                                                        className="flex-1 min-w-0 py-1 h-7 px-2 text-left font-mono text-xs font-bold border border-blue-200 dark:border-blue-800 rounded-md outline-none focus:ring-1 focus:ring-blue-400 bg-blue-50/30 dark:bg-blue-900/10 text-slate-900 dark:text-slate-100 placeholder:text-slate-300 dark:placeholder:text-slate-700"
+                                                    />
+                                                </div>
+                                            </>
+                                        )}
 
-                                        <div className="col-span-2">
-                                            <div className="relative">
-                                                <input 
-                                                    type="text" 
-                                                    value={task.plannedEditRows || ''} 
-                                                    onChange={(e) => handleUpdate(task, 'plannedEditRows', e.target.value)} 
-                                                    onBlur={(e) => {
-                                                        let valid = validateRowInput(e.target.value, task.batchId, 'edit');
-                                                        valid = checkDuplicateRows(valid, task.batchId, 'edit', task.id);
-                                                        if (valid !== e.target.value) {
-                                                            handleUpdate(task, 'plannedEditRows', valid);
-                                                        }
-                                                    }}
-                                                    className={`w-full py-1 h-8 px-2 font-mono text-sm font-bold border border-blue-200 rounded-md outline-none focus:ring-1 focus:ring-blue-400 bg-blue-50/30 text-slate-900 placeholder:text-slate-300 text-center min-w-0`} 
-                                                    placeholder=""
-                                                />
-                                            </div>
-                                        </div>
-                                        
-                                        <div className="col-span-2 flex justify-end">
+                                        <div className="hidden md:flex md:col-span-1 justify-center">
                                             {index === 0 ? (
                                                 <button 
                                                     onClick={() => addSplitAssignment(worker)}
-                                                    className="p-1.5 bg-slate-50 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors flex-shrink-0"
+                                                    className="p-1.5 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition-colors"
                                                     title="Split Task"
                                                 >
-                                                    <Plus size={16} />
+                                                    <Plus size={14} />
                                                 </button>
                                             ) : (
                                                 <button 
                                                     onClick={() => task.id && removeAssignment(task.id)}
-                                                    className="p-1.5 bg-slate-50 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors flex-shrink-0"
+                                                    className="p-1.5 bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
                                                     title="Remove Split"
                                                 >
-                                                    <Trash2 size={16} />
+                                                    <Trash2 size={14} />
                                                 </button>
                                             )}
                                         </div>
@@ -954,59 +790,10 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                                 ))}
                             </div>
                         );
-                     }) : (
-                         <div className="text-center py-8 text-slate-400 text-sm">
-                             No team members found for this language on this day.
-                         </div>
-                     )}
-                 </div>
-
-                 <div className="p-3 border-t border-slate-100 bg-slate-50 flex justify-end">
-                    <button 
-                        onClick={handleSave} 
-                        disabled={saveState === 'saving'}
-                        className={`py-3 px-6 rounded-xl font-bold text-sm shadow-md transition-all active:scale-95 flex items-center gap-2 ${
-                            saveState === 'saved' 
-                            ? 'bg-emerald-500 text-white shadow-emerald-200' 
-                            : 'bg-[#F26C21] text-white hover:bg-[#d95a10] shadow-orange-200'
-                        }`}
-                    >
-                       {saveState === 'saving' ? (
-                          <><Loader2 size={16} className="animate-spin"/> Saving...</>
-                       ) : saveState === 'saved' ? (
-                          <><Check size={16} /> Saved!</>
-                       ) : (
-                          <><Save size={16} /> Save Assignments</>
-                       )}
-                    </button>
+                     })}
                  </div>
             </div>
         </div>
-
-        {/* Duplicate Warning Modal */}
-        {duplicateWarning && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
-                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh]">
-                    <div className="p-5 border-b border-slate-100 flex items-center gap-3 bg-red-50">
-                        <div className="p-2 bg-red-100 rounded-lg">
-                            <AlertCircle className="text-red-600" size={20} />
-                        </div>
-                        <h2 className="text-lg font-bold text-red-800">Duplicate Assignment Detected</h2>
-                    </div>
-                    <div className="p-5 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700 font-medium">
-                        {duplicateWarning}
-                    </div>
-                    <div className="p-5 border-t border-slate-100 flex justify-end bg-slate-50">
-                        <button 
-                            onClick={() => setDuplicateWarning(null)}
-                            className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-lg shadow-lg shadow-red-200 transition-all active:scale-95"
-                        >
-                            Understood
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )}
     </div>
   );
 };

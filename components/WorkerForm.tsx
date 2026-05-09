@@ -13,6 +13,7 @@ const WorkerForm: React.FC<WorkerFormProps> = ({ workers, setWorkers, currentLan
   const [isOpen, setIsOpen] = useState(false); // Collapsed by default
   const [newWorker, setNewWorker] = useState<Partial<Worker>>({
     name: '',
+    email: '',
     role: 'Editor',
     genCapacity: 0,
     editCapacity: 0,
@@ -29,6 +30,7 @@ const WorkerForm: React.FC<WorkerFormProps> = ({ workers, setWorkers, currentLan
       const worker: Worker = {
         id: Math.random().toString(36).substr(2, 9),
         name: newWorker.name,
+        email: newWorker.email,
         role: newWorker.role as any,
         genCapacity: Number(newWorker.genCapacity) || 0,
         editCapacity: Number(newWorker.editCapacity) || 0,
@@ -39,7 +41,7 @@ const WorkerForm: React.FC<WorkerFormProps> = ({ workers, setWorkers, currentLan
       // We need to add to the global list using the setter
       setWorkers(prev => [...prev, worker]);
       
-      setNewWorker({ name: '', role: 'Editor', genCapacity: 0, editCapacity: 0, limitations: '' });
+      setNewWorker({ name: '', email: '', role: 'Editor', genCapacity: 0, editCapacity: 0, limitations: '' });
     }
   };
 
@@ -81,6 +83,15 @@ const WorkerForm: React.FC<WorkerFormProps> = ({ workers, setWorkers, currentLan
                 className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-[#F26C21] focus:border-[#F26C21] outline-none bg-white text-slate-900 placeholder:text-slate-400"
                 value={newWorker.name}
                 onChange={e => setNewWorker({...newWorker, name: e.target.value})}
+              />
+            </div>
+            <div>
+               <input 
+                type="email" 
+                placeholder="Email (john@example.com)"
+                className="w-full p-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-[#F26C21] focus:border-[#F26C21] outline-none bg-white text-slate-900 placeholder:text-slate-400"
+                value={newWorker.email || ''}
+                onChange={e => setNewWorker({...newWorker, email: e.target.value})}
               />
             </div>
             

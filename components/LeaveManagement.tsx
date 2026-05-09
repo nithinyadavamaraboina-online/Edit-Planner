@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Worker, Leave } from '../types';
-import { Calendar, Plus, X, AlertTriangle } from 'lucide-react';
+import { Calendar, Plus, X, AlertTriangle, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 interface LeaveManagementProps {
   workers: Worker[];
@@ -8,6 +9,7 @@ interface LeaveManagementProps {
   languages: string[];
   currentLanguage: string;
   onUpdate: (updatedWorkers: Worker[]) => void;
+  readOnly?: boolean;
 }
 
 const LeaveManagement: React.FC<LeaveManagementProps> = ({ 
@@ -15,7 +17,8 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({
     setWorkers, 
     languages, 
     currentLanguage,
-    onUpdate 
+    onUpdate,
+    readOnly = false
 }) => {
   const [selectedLanguage, setSelectedLanguage] = useState('All Members');
   const [viewDate, setViewDate] = useState(new Date());
@@ -86,16 +89,24 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({
               
               while (leaveIndex < validLeaves.length) {
                   const leave = validLeaves[leaveIndex];
+                  const duration = leave.duration || 1;
                   const leaveDate = new Date(leave.date);
                   if (leaveDate.getFullYear() === y && leaveDate.getMonth() === m) {
                       let newType: 'casual' | 'paid' | 'unpaid' = 'unpaid';
-                      if (currentCL > 0) {
+                      if (currentCL >= duration) {
                           newType = 'casual';
-                          currentCL--;
-                      } else if (currentPL > 0) {
+                          currentCL -= duration;
+                      } else if (currentPL >= duration) {
                           newType = 'paid';
-                          currentPL--;
+                          currentPL -= duration;
+                      } else if (currentCL > 0) {
+                          // Partial CL then partial unpaid or something complex
+                          // For simplicity, if they have some CL but not enough, we just use what's there?
+                          // The requirement says deduclt 0.5. 
+                          // Let's just do strict: if enough CL, use CL. Else if enough PL, use PL. Else unpaid.
+                          newType = 'unpaid';
                       }
+                      
                       recalibratedLeaves.push({ ...leave, type: newType });
                       leaveIndex++;
                   } else {
@@ -108,7 +119,7 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({
               }
           }
       }
-      
+
       if (viewYear < joiningYear || (viewYear === joiningYear && viewMonth < joiningMonth)) {
           balanceAtViewDate = { CL: 0, PL: 0 };
       }
@@ -121,16 +132,20 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({
   };
 
   const addLeave = (workerId: string) => {
+      if (readOnly) return;
       const worker = workers.find(w => w.id === workerId);
       if (!worker) return;
 
       const dateStr = prompt(`Enter date for leave (YYYY-MM-DD):`, `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-01`);
       if (!dateStr) return;
 
+      const fullOrHalf = confirm(`Is this a Full Day leave? (OK for Full Day, Cancel for Half Day)`) ? 1 : 0.5;
+
       const newLeave: Leave = {
           id: Math.random().toString(36).substr(2, 9),
           workerId,
           date: dateStr,
+          duration: fullOrHalf,
           type: 'paid' // Generic type, will be recalibrated
       };
 
@@ -149,6 +164,7 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({
   };
 
   const removeLeave = (workerId: string, leaveId: string) => {
+      if (readOnly) return;
       setConfirmAction({
           message: "Are you sure you want to remove this leave?",
           onConfirm: () => {
@@ -181,86 +197,79 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({
       });
   };
 
-    const applyInitialLeaves = () => {
-        setConfirmAction({
-            message: "This will replace all 2025/2026 leaves with the initial data. Continue?",
-            onConfirm: () => {
-                const initialLeavesData = [
-                    { name: 'nithin', date: '2025-08-01' },
-                    { name: 'nithin', date: '2025-08-29' },
-                    { name: 'nithin', date: '2025-09-15' },
-                    { name: 'nithin', date: '2025-09-16' },
-                    { name: 'nithin', date: '2026-01-27' },
-                    { name: 'leena', date: '2026-02-04' },
-                    { name: 'leena', date: '2026-02-05' },
-                    { name: 'kishan', date: '2026-02-07' },
-                    { name: 'intiyaz', date: '2026-02-07' },
-                    { name: 'neha', date: '2026-02-11' },
-                    { name: 'yashwanth', date: '2026-02-14' },
-                    { name: 'intiyaz', date: '2026-02-23' },
-                    { name: 'neha', date: '2026-02-26' },
-                    { name: 'kishan', date: '2026-02-28' },
-                    { name: 'yashwanth', date: '2026-02-28' },
-                    { name: 'khadayottan', date: '2026-02-26' },
-                    { name: 'khadayottan', date: '2026-02-27' },
-                    { name: 'monisha', date: '2026-02-28' },
-                    { name: 'aswathi', date: '2026-02-23' },
-                    { name: 'aswathi', date: '2026-02-24' },
-                    { name: 'monisha', date: '2026-03-05' },
-                    { name: 'monisha', date: '2026-03-09' },
-                    { name: 'monisha', date: '2026-03-10', type: 'unpaid' },
-                    { name: 'leena', date: '2026-03-10' },
-                    { name: 'monisha', date: '2026-03-11', type: 'unpaid' },
-                    { name: 'monisha', date: '2026-03-12', type: 'unpaid' },
-                    { name: 'monisha', date: '2026-03-13', type: 'unpaid' },
-                    { name: 'monisha', date: '2026-03-14', type: 'unpaid' },
-                    { name: 'kabilan', date: '2026-03-07' },
-                    { name: 'kabilan', date: '2026-03-09' },
-                    { name: 'kabilan', date: '2026-03-10' },
-                    { name: 'bala', date: '2025-10-03' },
-                    { name: 'kabilan', date: '2025-12-15' },
-                    { name: 'khadayottan', date: '2026-01-12' },
-                    { name: 'khadayottan', date: '2026-01-13' },
-                    { name: 'khadayottan', date: '2026-01-14' },
-                    { name: 'khadayottan', date: '2026-01-15', type: 'unpaid' },
-                    { name: 'khadayottan', date: '2026-01-16', type: 'unpaid' },
-                    { name: 'khadayottan', date: '2026-01-17', type: 'unpaid' },
-                    { name: 'neha', date: '2026-02-11' },
-                ];
+    const [downloadLinkData, setDownloadLinkData] = useState<{url: string, filename: string} | null>(null);
 
-                const updatedWorkers = workers.map(w => {
-                    // Remove all 2025 and 2026 leaves
-                    const otherLeaves = (w.leaves || []).filter(l => !l.date.startsWith('2026-') && !l.date.startsWith('2025-'));
-                    
-                    // Find leaves for this worker
-                    const workerInitialLeaves = initialLeavesData
-                        .filter(l => l.name.toLowerCase() === w.name.toLowerCase())
-                        .map(l => ({
-                            id: Math.random().toString(36).substr(2, 9),
-                            workerId: w.id,
-                            date: l.date,
-                            type: (l as any).type || 'paid' as const
-                        }));
+    const downloadLeaveData = () => {
+        const teams = Array.from(new Set(workers.map(w => w.language || 'Telugu'))) as string[];
+        const wb = XLSX.utils.book_new();
 
-                    const tempWorker = {
-                        ...w,
-                        leaves: [...otherLeaves, ...workerInitialLeaves]
-                    };
-                    
-                    // Recalibrate ALL leaves in one go
-                    const { recalibratedLeaves } = recalibrateLeaves(tempWorker, currentYear, currentMonth);
+        teams.forEach(team => {
+            const teamWorkers = workers.filter(w => (w.language || 'Telugu') === team);
+            
+            const data = teamWorkers.map(worker => {
+                const { recalibratedLeaves, availableCL, availablePL } = recalibrateLeaves(worker, currentYear, currentMonth);
+                
+                const casualLeaves = getLeavesForMonth(recalibratedLeaves, 'casual');
+                const paidLeaves = getLeavesForMonth(recalibratedLeaves, 'paid');
+                const unpaidLeaves = getLeavesForMonth(recalibratedLeaves, 'unpaid');
 
-                    return {
-                        ...tempWorker,
-                        leaves: recalibratedLeaves
-                    };
-                });
+                return {
+                    'Name': worker.name,
+                    'Role': worker.role,
+                    'Total Leaves Available': availableCL + availablePL,
+                    'CL Available': availableCL,
+                    'PL Available': availablePL,
+                    'Casual Leaves Taken': casualLeaves.map(l => l.date).join(', '),
+                    'Paid Leaves Taken': paidLeaves.map(l => l.date).join(', '),
+                    'Unpaid Leaves Taken': unpaidLeaves.map(l => l.date).join(', '),
+                    'Total Leaves Taken This Month': casualLeaves.length + paidLeaves.length + unpaidLeaves.length
+                };
+            });
 
-                setWorkers(updatedWorkers);
-                onUpdate(updatedWorkers);
-                setConfirmAction(null);
-            }
+            const ws = XLSX.utils.json_to_sheet(data);
+            
+            // Auto-size columns
+            const colWidths = [
+                { wch: 20 }, // Name
+                { wch: 15 }, // Role
+                { wch: 20 }, // Total Leaves Available
+                { wch: 15 }, // CL Available
+                { wch: 15 }, // PL Available
+                { wch: 30 }, // Casual Leaves Taken
+                { wch: 30 }, // Paid Leaves Taken
+                { wch: 30 }, // Unpaid Leaves Taken
+                { wch: 25 }  // Total Leaves Taken This Month
+            ];
+            ws['!cols'] = colWidths;
+
+            XLSX.utils.book_append_sheet(wb, ws, team);
         });
+
+        const monthName = new Date(0, currentMonth).toLocaleString('default', { month: 'long' });
+        const fileName = `Leave_Data_${monthName}_${currentYear}.xlsx`;
+        
+        try {
+            // Generate Excel file as a binary string
+            const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            
+            // Create a Blob from the buffer
+            const data = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            
+            // Create a download link and trigger it
+            const url = window.URL.createObjectURL(data);
+            
+            setDownloadLinkData({ url, filename: fileName });
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', fileName);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+        } catch (e) {
+            console.error("Download failed", e);
+        }
     };
 
   return (
@@ -286,7 +295,38 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({
                   <h2 className="text-2xl font-black text-slate-800 dark:text-white flex items-center gap-2">
                       <Calendar className="text-[#F26C21]" /> Leave Management
                   </h2>
-                  
+              </div>
+              
+              {downloadLinkData && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-xl max-w-sm w-full">
+                          <div className="flex items-center gap-3 mb-4 text-emerald-600">
+                              <Download size={24} />
+                              <h3 className="font-bold text-lg">Ready to Download</h3>
+                          </div>
+                          <p className="text-slate-600 dark:text-slate-300 mb-6 text-sm">
+                              If the download didn't start automatically, please click the button below. If that still doesn't work, right-click the button and select "Save Link As...".
+                          </p>
+                          <div className="flex flex-col gap-3">
+                              <a 
+                                  href={downloadLinkData.url}
+                                  download={downloadLinkData.filename}
+                                  className="px-4 py-2 rounded-lg bg-emerald-600 text-white font-bold text-sm hover:bg-emerald-700 text-center"
+                              >
+                                  Download Excel File
+                              </a>
+                              <button 
+                                  onClick={() => setDownloadLinkData(null)} 
+                                  className="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-sm"
+                              >
+                                  Close
+                              </button>
+                          </div>
+                      </div>
+                  </div>
+              )}
+
+              <div className="flex items-center gap-4">
                   <div className="flex bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
                       <button 
                           onClick={() => setSelectedLanguage('All Members')}
@@ -306,24 +346,11 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({
                   </div>
                   
                   <button 
-                      onClick={applyInitialLeaves}
-                      className="text-xs bg-orange-100 text-orange-700 hover:bg-orange-200 px-3 py-1.5 rounded-lg font-bold transition-colors"
+                      onClick={downloadLeaveData}
+                      className="flex items-center gap-1.5 text-xs bg-emerald-100 text-emerald-700 hover:bg-emerald-200 px-3 py-1.5 rounded-lg font-bold transition-colors"
                   >
-                      Apply Initial 2026 Leaves
-                  </button>
-                  <button 
-                      onClick={() => {
-                          const updatedWorkers = workers.map(w => {
-                              const { recalibratedLeaves } = recalibrateLeaves(w, currentYear, currentMonth);
-                              return { ...w, leaves: recalibratedLeaves };
-                          });
-                          setWorkers(updatedWorkers);
-                          onUpdate(updatedWorkers);
-                          alert("All leave data has been recalibrated.");
-                      }}
-                      className="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 px-3 py-1.5 rounded-lg font-bold transition-colors"
-                  >
-                      Recalibrate All Leaves
+                      <Download size={14} />
+                      Download Excel
                   </button>
               </div>
 
@@ -397,15 +424,15 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({
                                   <td className="p-4 align-top">
                                       <div className="flex flex-wrap gap-2">
                                           {casualLeaves.map(l => (
-                                              <div key={l.id} className="group relative px-2 py-1 bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 rounded text-xs font-bold flex items-center gap-1 cursor-help" title={`Casual Leave: ${l.date}`}>
-                                                  {new Date(l.date).getDate()}
-                                                  <button onClick={() => removeLeave(worker.id, l.id)} className="hidden group-hover:block text-teal-800 dark:text-teal-200 hover:text-red-500"><X size={10} /></button>
+                                              <div key={l.id} className="group relative px-2 py-1 bg-teal-100 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 rounded text-xs font-bold flex items-center gap-1 cursor-help" title={`Casual Leave: ${l.date} ${l.duration === 0.5 ? '(Half Day)' : ''}`}>
+                                                  {new Date(l.date).getDate()}{l.duration === 0.5 ? ' (H)' : ''}
+                                                  {!readOnly && <button onClick={() => removeLeave(worker.id, l.id)} className="hidden group-hover:block text-teal-800 dark:text-teal-200 hover:text-red-500"><X size={10} /></button>}
                                               </div>
                                           ))}
                                           {paidLeaves.map(l => (
-                                              <div key={l.id} className="group relative px-2 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded text-xs font-bold flex items-center gap-1 cursor-help" title={`Paid Leave: ${l.date}`}>
-                                                  {new Date(l.date).getDate()}
-                                                  <button onClick={() => removeLeave(worker.id, l.id)} className="hidden group-hover:block text-emerald-800 dark:text-emerald-200 hover:text-red-500"><X size={10} /></button>
+                                              <div key={l.id} className="group relative px-2 py-1 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 rounded text-xs font-bold flex items-center gap-1 cursor-help" title={`Paid Leave: ${l.date} ${l.duration === 0.5 ? '(Half Day)' : ''}`}>
+                                                  {new Date(l.date).getDate()}{l.duration === 0.5 ? ' (H)' : ''}
+                                                  {!readOnly && <button onClick={() => removeLeave(worker.id, l.id)} className="hidden group-hover:block text-emerald-800 dark:text-emerald-200 hover:text-red-500"><X size={10} /></button>}
                                               </div>
                                           ))}
                                       </div>
@@ -415,9 +442,9 @@ const LeaveManagement: React.FC<LeaveManagementProps> = ({
                                   <td className="p-4 align-top">
                                       <div className="flex flex-wrap gap-2">
                                           {unpaidLeaves.map(l => (
-                                              <div key={l.id} className="group relative px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded text-xs font-bold flex items-center gap-1 cursor-help" title={`LOP: ${l.date}`}>
-                                                  {new Date(l.date).getDate()}
-                                                  <button onClick={() => removeLeave(worker.id, l.id)} className="hidden group-hover:block text-red-800 dark:text-red-200 hover:text-red-500"><X size={10} /></button>
+                                              <div key={l.id} className="group relative px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded text-xs font-bold flex items-center gap-1 cursor-help" title={`LOP: ${l.date} ${l.duration === 0.5 ? '(Half Day)' : ''}`}>
+                                                  {new Date(l.date).getDate()}{l.duration === 0.5 ? ' (H)' : ''}
+                                                  {!readOnly && <button onClick={() => removeLeave(worker.id, l.id)} className="hidden group-hover:block text-red-800 dark:text-red-200 hover:text-red-500"><X size={10} /></button>}
                                               </div>
                                           ))}
                                       </div>

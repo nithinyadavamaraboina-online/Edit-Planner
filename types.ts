@@ -4,6 +4,7 @@ export interface Leave {
   workerId: string;
   date: string; // ISO Date String (YYYY-MM-DD)
   type: 'paid' | 'casual' | 'unpaid';
+  duration?: number; // 1 for full day, 0.5 for half day
   reason?: string;
   approvedBy?: string;
 }
@@ -11,6 +12,7 @@ export interface Leave {
 export interface Worker {
   id: string;
   name: string;
+  email?: string;
   role: 'Editor' | 'Intern' | 'Assist' | 'Manager' | 'TL';
   genCapacity: number;
   editCapacity: number;
@@ -48,9 +50,11 @@ export interface Batch {
   // Computed/Progress properties (optional as they are calculated at runtime)
   completedGen?: number;
   completedEdit?: number;
+  completedNormal?: number;
   progress?: number;
   totalGen?: number;
   totalEdit?: number;
+  totalNormal?: number;
 }
 
 export interface User {
@@ -102,6 +106,7 @@ export interface TaskAssignment {
   edits: number;
   role: string;
   isOnLeave?: boolean;
+  isHalfDay?: boolean; // New: Half day leave
   batchId?: string; // Link work to a specific batch
   assignedRows?: string; // Deprecated: Space separated numbers
   assignedGenRows?: string; // New: Specific rows for generation
@@ -111,6 +116,7 @@ export interface TaskAssignment {
   plannedGenerations?: number; // New: Planned count for generation
   plannedEdits?: number; // New: Planned count for editing
   taskLanguage?: string; // New: Language context for this specific task (e.g. 'Hindi' if assigned from Hindi view)
+  notes?: string; // New: Notes for other work or learning
 }
 
 export interface DayPlan {
@@ -122,10 +128,20 @@ export interface DayPlan {
   lockedTeams?: string[]; // New: List of languages that have locked this day
 }
 
+export interface RowAssignment {
+  batchId: string;
+  rowNumber: number;
+  videoType: 'AI' | 'Actor';
+  assigneeId?: string;
+  stage: 'AI Generation' | 'Ready for Edit' | 'Editing' | 'Done';
+  phase: 'Pending' | 'Started' | 'Completed';
+}
+
 export interface ProductionPlan {
   summary: PlanSummary;
   bottlenecks: Bottlenecks;
   schedule: DayPlan[];
   constraints: string[];
   risks: string[];
+  rowAssignments?: Record<string, RowAssignment>; // Key: `${batchId}_${rowNumber}`
 }

@@ -9,6 +9,7 @@ interface AdminPageProps {
   batches: Batch[];
   plan: ProductionPlan | null;
   projectMeta: { id?: string; name: string; notes: string } | null;
+  onError?: (msg: string) => void;
 }
 
 const AdminPage: React.FC<AdminPageProps> = ({ 
@@ -16,14 +17,19 @@ const AdminPage: React.FC<AdminPageProps> = ({
     batches,
     plan,
     onBack,
-    projectMeta
+    projectMeta,
+    onError
 }) => {
   
   const handleShareDashboard = () => {
     if (!projectMeta?.id) return;
-    const url = `${window.location.origin}${window.location.pathname}?mode=dashboard&id=${projectMeta.id}`;
+    const url = `${window.location.origin}/editors-dashboard.html?id=${projectMeta.id}`;
     navigator.clipboard.writeText(url);
-    alert("Dashboard link copied to clipboard!");
+    if (onError) {
+        onError("Dashboard link copied to clipboard!");
+    } else {
+        alert("Dashboard link copied to clipboard!");
+    }
   };
   
   const editorVelocities = useMemo(() => {
@@ -57,14 +63,15 @@ const AdminPage: React.FC<AdminPageProps> = ({
     const { 
         id,
         aiVideos, normalVideos, 
-        completedGen, completedEdit, 
+        completedGen, completedEdit, completedNormal,
         startDate, endDate 
     } = batch;
 
     const totalWorkUnits = aiVideos + (aiVideos + normalVideos);
     const cGen = completedGen || 0;
     const cEdit = completedEdit || 0;
-    const completedUnits = cGen + cEdit;
+    const cNormal = completedNormal || 0;
+    const completedUnits = cGen + cEdit + cNormal;
     const remainingUnits = totalWorkUnits - completedUnits;
     const progress = totalWorkUnits > 0 ? Math.round((completedUnits / totalWorkUnits) * 100) : 0;
 
@@ -136,7 +143,7 @@ const AdminPage: React.FC<AdminPageProps> = ({
         if (!grouped[lang]) grouped[lang] = { active: [], completed: [] };
 
         const total = b.aiVideos + (b.aiVideos + b.normalVideos);
-        const done = (b.completedGen || 0) + (b.completedEdit || 0);
+        const done = (b.completedGen || 0) + (b.completedEdit || 0) + (b.completedNormal || 0);
         const p = total > 0 ? Math.round((done / total) * 100) : 0;
 
         if (p >= 100) {
@@ -150,11 +157,11 @@ const AdminPage: React.FC<AdminPageProps> = ({
 
   const getStatusColor = (status: string) => {
     switch(status) {
-        case 'completed': return 'bg-emerald-100 text-emerald-700 border-emerald-200';
-        case 'delayed': return 'bg-red-100 text-red-700 border-red-200';
-        case 'risk': return 'bg-amber-100 text-amber-700 border-amber-200';
-        case 'due_today': return 'bg-orange-100 text-[#F26C21] border-orange-200';
-        default: return 'bg-emerald-50 text-emerald-600 border-emerald-200';
+        case 'completed': return 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800';
+        case 'delayed': return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800';
+        case 'risk': return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800';
+        case 'due_today': return 'bg-orange-100 dark:bg-orange-900/30 text-[#F26C21] dark:text-orange-400 border-orange-200 dark:border-orange-800';
+        default: return 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800';
     }
   };
 
@@ -171,28 +178,28 @@ const AdminPage: React.FC<AdminPageProps> = ({
     const getLangTheme = (lang: string) => {
     const lower = (lang || '').toLowerCase();
     if (lower.includes('telugu')) return { 
-        bg: 'bg-white', 
-        border: 'border-orange-200', 
-        icon: 'text-orange-600 bg-orange-50', 
-        title: 'text-orange-900' 
+        bg: 'bg-white dark:bg-slate-900', 
+        border: 'border-orange-200 dark:border-orange-800', 
+        icon: 'text-orange-600 bg-orange-50 dark:text-orange-400 dark:bg-orange-900/20', 
+        title: 'text-orange-900 dark:text-orange-100' 
     };
     if (lower.includes('hindi')) return { 
-        bg: 'bg-white', 
-        border: 'border-sky-200', 
-        icon: 'text-sky-600 bg-sky-50', 
-        title: 'text-sky-900' 
+        bg: 'bg-white dark:bg-slate-900', 
+        border: 'border-sky-200 dark:border-sky-800', 
+        icon: 'text-sky-600 bg-sky-50 dark:text-sky-400 dark:bg-sky-900/20', 
+        title: 'text-sky-900 dark:text-sky-100' 
     };
     if (lower.includes('tamil')) return { 
-        bg: 'bg-white', 
-        border: 'border-violet-200', 
-        icon: 'text-violet-600 bg-violet-50', 
-        title: 'text-violet-900' 
+        bg: 'bg-white dark:bg-slate-900', 
+        border: 'border-violet-200 dark:border-violet-800', 
+        icon: 'text-violet-600 bg-violet-50 dark:text-violet-400 dark:bg-violet-900/20', 
+        title: 'text-violet-900 dark:text-violet-100' 
     };
     return { 
-        bg: 'bg-white', 
-        border: 'border-slate-200', 
-        icon: 'text-slate-600 bg-slate-50', 
-        title: 'text-slate-900' 
+        bg: 'bg-white dark:bg-slate-900', 
+        border: 'border-slate-200 dark:border-slate-800', 
+        icon: 'text-slate-600 bg-slate-50 dark:text-slate-400 dark:bg-slate-800', 
+        title: 'text-slate-900 dark:text-slate-100' 
     };
   };
 
@@ -226,41 +233,43 @@ const AdminPage: React.FC<AdminPageProps> = ({
                             {/* Language Header */}
                             <div className="border-b border-slate-100 dark:border-slate-800 pb-6 text-center">
                                 <h2 className={`text-3xl font-black leading-none ${theme.title}`}>{lang}</h2>
-                                <div className="flex justify-center gap-4 text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mt-1.5">
-                                    {hasActive && <span>{active.length} Active</span>}
-                                    {hasCompleted && <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1"><CheckCircle size={12} /> {completed.length} Completed</span>}
-                                </div>
                             </div>
                             
                             {/* Active Projects Grid */}
                             {hasActive && (
-                                <div className={`grid ${active.length === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-3'} gap-4`}>
+                                <div className="grid grid-cols-1 gap-4">
                                     {active.map(batch => {
                                         const { status, progress, remainingUnits, predictionData, endDate, predictedDate } = getBatchAnalysis(batch);
                                         const statusColor = getStatusColor(status);
                                         const isCompleted = status === 'completed' || progress >= 100;
 
                                         return (
-                                            <div key={batch.id} className={`${isCompleted ? 'bg-emerald-50/50 border-emerald-200' : 'bg-slate-50 border-slate-200'} rounded-xl p-3 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 group relative border shadow-sm flex flex-col justify-between h-full`}>
+                                            <div key={batch.id} className={`${isCompleted ? 'bg-emerald-50/30 dark:bg-emerald-900/10 border-emerald-100 dark:border-emerald-800' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'} rounded-2xl p-4 transition-all duration-300 group relative border shadow-sm flex flex-col justify-between h-full`}>
                                                 
                                                 <div>
                                                     {/* Header */}
-                                                    <div className="flex justify-between items-start mb-2">
+                                                    <div className="flex justify-between items-start mb-4">
                                                         <div className="min-w-0 pr-2">
-                                                            <div className={`text-[9px] font-bold uppercase tracking-wide truncate mb-0.5 ${isCompleted ? 'text-emerald-500' : 'text-slate-400'}`}>{batch.clientName}</div>
-                                                            <h3 className={`text-sm font-black leading-tight truncate ${isCompleted ? 'text-emerald-900' : 'text-slate-800'}`} title={batch.batchName}>
+                                                            <div className={`text-[10px] font-bold uppercase tracking-widest truncate mb-1 ${isCompleted ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'}`}>{batch.clientName}</div>
+                                                            <h3 className={`text-base font-black leading-tight truncate ${isCompleted ? 'text-emerald-900 dark:text-emerald-100' : 'text-slate-800 dark:text-slate-100'}`} title={batch.batchName}>
                                                                 {batch.batchName}
                                                             </h3>
+                                                        </div>
+                                                        <div className="flex flex-col items-end">
+                                                            <span className={`text-[9px] font-bold uppercase tracking-wider ${isCompleted ? 'text-emerald-400 dark:text-emerald-500' : 'text-slate-400 dark:text-slate-500'}`}>Pending</span>
+                                                            <span className={`text-sm font-bold ${isCompleted ? 'text-emerald-800 dark:text-emerald-200' : 'text-slate-700 dark:text-slate-300'}`}>
+                                                                {remainingUnits} Units
+                                                            </span>
                                                         </div>
                                                     </div>
                                                     
                                                     {/* Progress Bar */}
-                                                    <div className="mb-3">
-                                                        <div className="flex justify-between items-end mb-1">
-                                                            <span className={`text-[9px] font-bold uppercase ${isCompleted ? 'text-emerald-500' : 'text-slate-400'}`}>Progress</span>
-                                                            <span className={`text-lg font-black ${status === 'completed' ? 'text-emerald-600' : 'text-slate-700'}`}>{progress}%</span>
+                                                    <div className="mb-2">
+                                                        <div className="flex justify-between items-end mb-1.5">
+                                                            <span className={`text-[10px] font-bold uppercase tracking-wider ${isCompleted ? 'text-emerald-500 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'}`}>Progress</span>
+                                                            <span className={`text-xl font-black ${status === 'completed' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700 dark:text-white'}`}>{progress}%</span>
                                                         </div>
-                                                        <div className={`w-full h-2 rounded-full overflow-hidden mb-2 ${isCompleted ? 'bg-emerald-200' : 'bg-slate-200'}`}>
+                                                        <div className={`w-full h-2 rounded-full overflow-hidden ${isCompleted ? 'bg-emerald-200 dark:bg-emerald-800/50' : 'bg-slate-100 dark:bg-slate-700'}`}>
                                                             <div 
                                                                 className={`h-full rounded-full transition-all duration-500 ${
                                                                     status === 'delayed' ? 'bg-red-500' : 
@@ -271,32 +280,8 @@ const AdminPage: React.FC<AdminPageProps> = ({
                                                                 style={{ width: `${progress}%` }}
                                                             ></div>
                                                         </div>
-                                                        <div className={`w-full py-1 rounded-md border text-center text-[9px] font-bold uppercase tracking-wide ${statusColor}`}>
-                                                            {getStatusLabel(status, predictionData)}
-                                                        </div>
                                                     </div>
                                                 </div>
-
-                                                {/* Footer Info */}
-                                                <div className={`flex justify-between items-center pt-2 border-t ${isCompleted ? 'border-emerald-100' : 'border-slate-200'}`}>
-                                                    <div className="flex flex-col">
-                                                        <span className={`text-[8px] font-bold uppercase ${isCompleted ? 'text-emerald-400' : 'text-slate-400'}`}>Deadline</span>
-                                                        <span className={`text-xs font-bold ${status === 'delayed' ? 'text-red-500' : (isCompleted ? 'text-emerald-800' : 'text-slate-700')}`}>
-                                                            {endDate ? new Date(endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A'}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex flex-col items-end">
-                                                        <span className={`text-[8px] font-bold uppercase ${isCompleted ? 'text-emerald-400' : 'text-slate-400'}`}>Pending</span>
-                                                        <span className={`text-xs font-bold ${isCompleted ? 'text-emerald-800' : 'text-slate-700'}`}>
-                                                            {remainingUnits} Units
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                {!isCompleted && predictedDate && (
-                                                    <div className="mt-1 text-center text-[10px] border-t border-slate-200 pt-1">
-                                                        <span className="text-indigo-600 font-bold">Predicted: {predictedDate}</span>
-                                                    </div>
-                                                )}
                                             </div>
                                         );
                                     })}
@@ -309,15 +294,18 @@ const AdminPage: React.FC<AdminPageProps> = ({
                                     <h3 className="text-xs font-black uppercase text-emerald-600/70 mb-4 flex items-center gap-2 tracking-widest">
                                         <Trophy size={14} /> Completed History
                                     </h3>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-2 2xl:grid-cols-3 gap-4 opacity-80 hover:opacity-100 transition-opacity">
-                                        {completed.map(batch => (
-                                            <div key={batch.id} className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-4 flex items-center justify-between transition-all hover:bg-emerald-50 hover:shadow-md cursor-default">
+                                    <div className="grid grid-cols-1 gap-4 opacity-80 hover:opacity-100 transition-opacity">
+                                        {completed
+                                            .sort((a, b) => new Date(b.endDate || 0).getTime() - new Date(a.endDate || 0).getTime())
+                                            .slice(0, 1)
+                                            .map(batch => (
+                                            <div key={batch.id} className="bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-800 rounded-xl p-4 flex items-center justify-between transition-all hover:bg-emerald-50 dark:hover:bg-emerald-900/20 hover:shadow-md cursor-default">
                                                 <div className="min-w-0 pr-2">
-                                                    <div className="text-[9px] font-bold uppercase text-emerald-600/60 truncate mb-0.5">{batch.clientName}</div>
-                                                    <div className="text-sm font-black text-emerald-800 truncate" title={batch.batchName}>{batch.batchName}</div>
+                                                    <div className="text-[9px] font-bold uppercase text-emerald-600/60 dark:text-emerald-400/60 truncate mb-0.5">{batch.clientName}</div>
+                                                    <div className="text-sm font-black text-emerald-800 dark:text-emerald-100 truncate" title={batch.batchName}>{batch.batchName}</div>
                                                 </div>
                                                 <div className="flex-shrink-0">
-                                                    <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                                                    <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
                                                         <CheckCircle size={16} />
                                                     </div>
                                                 </div>
