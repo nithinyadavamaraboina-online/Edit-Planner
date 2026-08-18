@@ -22,18 +22,22 @@ service cloud.firestore {
     }
 
     match /production_plans/{planId} {
-      allow read, write: if isAuthenticated();
+      allow read: if true;
+      allow write: if isAuthenticated();
       
       match /days/{dayId} {
-        allow read, write: if isAuthenticated();
+        allow read: if true;
+        allow write: if isAuthenticated();
         
         match /assignments/{assignmentId} {
-          allow read, write: if isAuthenticated();
+          allow read: if true;
+          allow write: if isAuthenticated();
         }
       }
       
       match /presence/{userId} {
-        allow read, write: if isAuthenticated();
+        allow read: if true;
+        allow write: if isAuthenticated();
       }
     }
 

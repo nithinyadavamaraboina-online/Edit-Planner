@@ -1,5 +1,5 @@
 {
   "name": "WeDo Edit Planner",
-  "description": "An AI-powered production planning tool for video editing teams that optimizes daily workflows, manages capacity constraints, and identifies bottlenecks.",
+  "description": "A production planning tool for video editing teams that optimizes daily workflows, manages capacity constraints, and identifies bottlenecks.",
   "requestFramePermissions": []
 }

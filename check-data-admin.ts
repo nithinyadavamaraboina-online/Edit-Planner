@@ -7,7 +7,7 @@ const app = admin.initializeApp({
   projectId: firebaseConfig.projectId
 });
 
-const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
 
 async function checkData() {
   const plansCol = db.collection('production_plans');

@@ -11,7 +11,7 @@ export const testConnection = async () => {
     console.log("Firestore connection successful");
   } catch (error) {
     if(error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration. ");
+      console.warn("Firestore connection check: the client is currently offline. Will retry automatically.");
     } else {
       console.log("Firestore connection test completed (expected error if no test doc exists)");
     }
@@ -152,7 +152,10 @@ export const subscribeToPlan = (planId: string, onUpdate: (data: any) => void) =
                 id: doc.id,
                 name: data.projectName,
                 notes: data.notes,
-                synced: true
+                synced: true,
+                googleChatSpaceId: data.googleChatSpaceId || '',
+                googleChatSpaceName: data.googleChatSpaceName || '',
+                googleChatNotifyOnLock: data.googleChatNotifyOnLock ?? false
             }
           };
           emit();
@@ -282,8 +285,9 @@ export const getDb = () => {
     app = getApp();
   }
   
-  if (firebaseConfig.firestoreDatabaseId) {
-    db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+  const config = firebaseConfig as any;
+  if (config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)') {
+    db = getFirestore(app, config.firestoreDatabaseId);
   } else {
     db = getFirestore(app);
   }
@@ -306,15 +310,71 @@ export const getAuthInstance = () => {
   return auth;
 };
 
+let cachedAccessToken: string | null = null;
+
+export const setAccessToken = (token: string | null) => {
+  cachedAccessToken = token;
+};
+
+export const getAccessToken = () => {
+  return cachedAccessToken;
+};
+
+/**
+ * Automatically reconciles and enriches user profiles on login.
+ */
+export const syncUserProfileOnLogin = async (user: FirebaseUser) => {
+  if (!user || !user.uid) return;
+  try {
+    const database = getDb();
+    const userRef = doc(database, 'users', user.uid);
+    await setDoc(userRef, {
+      uid: user.uid,
+      email: user.email || null,
+      displayName: user.displayName || null,
+      photoURL: user.photoURL || null,
+      lastLogin: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  } catch (err) {
+    console.warn("Could not sync user profile on login:", err);
+  }
+};
+
 export const signInWithGoogle = async () => {
   const authInstance = getAuthInstance();
   const provider = new GoogleAuthProvider();
+  
   try {
     const result = await signInWithPopup(authInstance, provider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (credential?.accessToken) {
+      cachedAccessToken = credential.accessToken;
+    }
+    if (result.user) {
+      await syncUserProfileOnLogin(result.user);
+    }
     return result.user;
   } catch (error) {
     console.error("Error signing in with Google", error);
     throw error;
+  }
+};
+
+export const updateProjectFieldInCloud = async (planId: string, fields: any) => {
+  try {
+    const database = getDb();
+    const planRef = doc(database, 'production_plans', planId);
+    await updateDoc(planRef, { 
+      ...sanitizeForFirestore(fields), 
+      updatedAt: serverTimestamp() 
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('Missing or insufficient permissions')) {
+        handleFirestoreError(e, OperationType.UPDATE, `production_plans/${planId}`);
+    }
+    console.error("Error updating project field:", e);
+    throw e;
   }
 };
 
@@ -330,7 +390,12 @@ export const signOutUser = async () => {
 
 export const onAuthChange = (callback: (user: FirebaseUser | null) => void) => {
   const authInstance = getAuthInstance();
-  return onAuthStateChanged(authInstance, callback);
+  return onAuthStateChanged(authInstance, async (user) => {
+    if (user) {
+      syncUserProfileOnLogin(user).catch(() => {});
+    }
+    callback(user);
+  });
 };
 
 /**
@@ -753,7 +818,10 @@ export const loadPlanFromCloud = async (planId: string) => {
           id: planDoc.id, // Return ID so we can update it later
           name: data.projectName,
           notes: data.notes,
-          synced: true
+          synced: true,
+          googleChatSpaceId: data.googleChatSpaceId || '',
+          googleChatSpaceName: data.googleChatSpaceName || '',
+          googleChatNotifyOnLock: data.googleChatNotifyOnLock ?? false
       }
     };
   } catch (e) {

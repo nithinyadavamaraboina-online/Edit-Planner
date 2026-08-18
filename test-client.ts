@@ -4,7 +4,7 @@ import { getFirestore, collection, getDocs } from 'firebase/firestore';
 import firebaseConfig from './firebase-applet-config.json' assert { type: 'json' };
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
 const auth = getAuth(app);
 
 async function test() {

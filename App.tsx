@@ -11,29 +11,231 @@ import LeaveManagement from './components/LeaveManagement';
 import PresenceList from './components/PresenceList';
 import AIManager from './components/AIManager';
 import { generateProductionPlan } from './services/geminiService';
-import { savePlanToCloud, loadPlanFromCloud, deletePlanFromCloud, getSavedPlans, subscribeToPlan, saveDayToCloud, updatePresence, subscribeToPresence, saveAssignmentToCloud, deleteAssignmentFromCloud, signInWithGoogle, signOutUser, onAuthChange, testConnection, updateBatchesInCloud, updateWorkersInCloud, updatePlanInCloud, updateLanguagesInCloud, updateLeavesInCloud } from './services/firestoreService';
-import { Play, RefreshCw, Loader2, CheckCircle, XCircle, TrendingUp, Calendar, X, CloudUpload, FolderCheck, Check, Upload, HardDrive, Trash2, FolderOpen, Brain, Zap, Clock, Rocket, LayoutDashboard, ListChecks, ArrowLeft, PenTool, ChevronRight, Plus, PieChart, Cloud, Layers, Globe, Shield, LogOut, UserCheck, Settings, Moon, Sun, Trophy } from 'lucide-react';
+import { savePlanToCloud, loadPlanFromCloud, deletePlanFromCloud, getSavedPlans, subscribeToPlan, saveDayToCloud, updatePresence, subscribeToPresence, saveAssignmentToCloud, deleteAssignmentFromCloud, signInWithGoogle, signOutUser, onAuthChange, testConnection, updateBatchesInCloud, updateWorkersInCloud, updatePlanInCloud, updateLanguagesInCloud, updateLeavesInCloud, updateProjectFieldInCloud } from './services/firestoreService';
+import { Play, RefreshCw, Loader2, CheckCircle, XCircle, TrendingUp, Calendar, X, CloudUpload, FolderCheck, Check, Upload, HardDrive, Trash2, FolderOpen, Brain, Zap, Clock, Rocket, LayoutDashboard, Home, ListChecks, ArrowLeft, PenTool, ChevronRight, Plus, PieChart, Cloud, Layers, Globe, Shield, LogOut, UserCheck, Settings, Trophy, ChevronDown } from 'lucide-react';
 import { User as FirebaseUser } from 'firebase/auth';
 
 const USER_EMAIL = 'nithin.yadav.amaraboina@gmail.com';
 
 // Added language: 'Telugu' to default workers
 const DEFAULT_WORKERS: Worker[] = [
-  { id: '1', name: 'Nithin', role: 'Editor', genCapacity: 0, editCapacity: 9, limitations: 'Edits only. Can edit AI videos same-day.', language: 'Telugu', joiningDate: '2025-11-12' },
-  { id: '2', name: 'Kishan', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: 'Shared capacity: Max 7 Gen OR 9 Edit OR mix', language: 'Telugu', joiningDate: '2025-10-13' },
-  { id: '3', name: 'Neha', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: 'Shared capacity: Max 7 Gen OR 9 Edit OR mix', language: 'Telugu', joiningDate: '2026-02-16' },
-  { id: '4', name: 'Yashwanth', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: 'Shared capacity: Max 7 Gen OR 9 Edit OR mix', language: 'Telugu', joiningDate: '2026-02-03' },
-  { id: '5', name: 'Intiyaz', role: 'Intern', genCapacity: 6, editCapacity: 0, limitations: 'Generations only', language: 'Telugu', joiningDate: '2026-01-27' },
-  { id: '6', name: 'Leena', role: 'Intern', genCapacity: 6, editCapacity: 0, limitations: 'Generations only', language: 'Telugu', joiningDate: '2026-02-02' },
+  { id: '1', name: 'Nithin Amaraboina', role: 'Editor', genCapacity: 0, editCapacity: 9, limitations: 'Edits only. Can edit AI videos same-day.', language: 'Telugu', joiningDate: '2025-03-24' },
+  { id: '2', name: 'Kishan BT', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: 'Shared capacity: Max 7 Gen OR 9 Edit OR mix', language: 'Telugu', joiningDate: '2025-10-13' },
+  { id: '3', name: 'Bhavana Vajrala', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2026-03-05' },
+  { id: '4', name: 'YASWANTH KUMAR', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: 'Shared capacity: Max 7 Gen OR 9 Edit OR mix', language: 'Telugu', joiningDate: '2026-02-03' },
+  { id: '5', name: 'Om Ramesh Ghodke', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2026-01-10' },
+  { id: '6', name: 'Monisha Lazar', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2026-02-16' },
   { id: '7', name: 'Aswathi', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2026-01-27' },
-  { id: '8', name: 'Bala', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2025-07-24' },
-  { id: '9', name: 'Ganga', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2026-03-05' },
-  { id: '10', name: 'Kabilan', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2025-12-17' },
-  { id: '11', name: 'Khadayottan', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2026-02-04' },
-  { id: '12', name: 'Monisha', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Telugu', joiningDate: '2026-02-16' },
+  { id: '8', name: 'Balachandra Giri', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Tamil', joiningDate: '2025-07-24' },
+  { id: '9', name: 'Ganga Pethumani', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Tamil', joiningDate: '2026-03-05' },
+  { id: '10', name: 'SAIGA SUDHEESH', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Malayalam', joiningDate: '2026-01-15' },
+  { id: '11', name: 'ANANDHU O', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Malayalam', joiningDate: '2026-02-10' },
+  { id: '12', name: 'Akhil Mathew', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Malayalam', joiningDate: '2026-02-20' },
+  { id: '13', name: 'Gokulavani N', role: 'Editor', genCapacity: 7, editCapacity: 9, limitations: '', language: 'Tamil', joiningDate: '2026-02-15' },
 ];
 
 const DEFAULT_LANGUAGES = ['Telugu', 'Tamil', 'Malayalam', 'Kannada'];
+
+const INITIAL_LEAVE_BALANCES: Record<string, number> = {
+  'nithin': 25,
+  'bhavana': 6,
+  'yaswanth': 0,
+  'kishan': 9.5,
+  'om': 4,
+  'monisha': 0,
+  'saiga': 7,
+  'anandhu': 6,
+  'akhil': 2,
+  'aswathi': 0,
+  'bala': 19,
+  'gokulavani': 6,
+  'ganga': 0.5
+};
+
+const getInitialTillJuneBalance = (nameStr: string): number => {
+  const norm = nameStr.toLowerCase();
+  for (const [key, val] of Object.entries(INITIAL_LEAVE_BALANCES)) {
+      if (norm.includes(key)) {
+          return val;
+      }
+  }
+  return 0;
+};
+
+const getInitialSplit = (name: string, joiningDateStr: string) => {
+  if (name.toLowerCase().includes('gokulavani')) {
+      return { CL: 1, PL: 5, isAfterJune: false };
+  }
+
+  const initBalance = getInitialTillJuneBalance(name);
+  const joiningDate = new Date(joiningDateStr);
+  const joiningYear = joiningDate.getFullYear();
+  const joiningMonth = joiningDate.getMonth();
+  const joiningDay = joiningDate.getDate();
+
+  // If they joined after June 2026, they start with 0 CL, 0 PL
+  if (joiningYear > 2026 || (joiningYear === 2026 && joiningMonth > 5)) {
+      return { CL: 0, PL: 0, isAfterJune: true };
+  }
+
+  // Calculate earned CL and PL from joining date up to June 2026
+  let earnedCL = 0;
+  let earnedPL = 0;
+  let y = joiningYear;
+  let m = joiningMonth;
+
+  while (y < 2026 || (y === 2026 && m <= 5)) {
+      if (y === joiningYear && m === joiningMonth) {
+          if (joiningDay <= 7) {
+              earnedCL += 1;
+              earnedPL += 1;
+          } else if (joiningDay <= 20) {
+              earnedPL += 1;
+          }
+      } else {
+          earnedCL += 1;
+          earnedPL += 1;
+      }
+      m++;
+      if (m > 11) {
+          m = 0;
+          y++;
+      }
+  }
+
+  const totalEarned = earnedCL + earnedPL;
+  if (totalEarned <= 0) {
+      const cl = Math.floor(initBalance / 2);
+      return { CL: cl, PL: initBalance - cl, isAfterJune: false };
+  }
+
+  const usedLeaves = totalEarned - initBalance;
+  
+  let initialCL = earnedCL;
+  let initialPL = earnedPL;
+
+  if (usedLeaves > 0) {
+      if (usedLeaves <= initialCL) {
+          initialCL -= usedLeaves;
+      } else {
+          initialPL -= (usedLeaves - initialCL);
+          initialCL = 0;
+      }
+  } else if (usedLeaves < 0) {
+      initialPL += Math.abs(usedLeaves);
+  }
+
+  return { CL: initialCL, PL: initialPL, isAfterJune: false };
+};
+
+const calculateLeaveBalances = (worker: Worker, viewDate: Date = new Date()) => {
+  const viewYear = viewDate.getFullYear();
+  const viewMonth = viewDate.getMonth();
+
+  const joiningDateStr = worker.joiningDate || '2026-02-01';
+  const joiningDate = new Date(joiningDateStr);
+  const joiningYear = joiningDate.getFullYear();
+  const joiningMonth = joiningDate.getMonth(); // 0-indexed
+  const joiningDay = joiningDate.getDate();
+
+  // Sort leaves chronologically
+  const allLeaves = (worker.leaves || []).slice().sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  // Determine starting date for step-by-step calculations
+  const { CL, PL, isAfterJune } = getInitialSplit(worker.name, joiningDateStr);
+
+  let currentCL = CL;
+  let currentPL = PL;
+
+  let startYear = 2026;
+  let startMonth = 6; // July (0-indexed 6)
+
+  if (isAfterJune) {
+      startYear = joiningYear;
+      startMonth = joiningMonth;
+  }
+
+  let endYear = viewYear;
+  let endMonth = viewMonth;
+
+  const realNow = new Date();
+  if (realNow.getFullYear() > endYear || (realNow.getFullYear() === endYear && realNow.getMonth() > endMonth)) {
+      endYear = realNow.getFullYear();
+      endMonth = realNow.getMonth();
+  }
+
+  if (allLeaves.length > 0) {
+      const lastLeaveDate = new Date(allLeaves[allLeaves.length - 1].date);
+      if (lastLeaveDate.getFullYear() > endYear || (lastLeaveDate.getFullYear() === endYear && lastLeaveDate.getMonth() > endMonth)) {
+          endYear = lastLeaveDate.getFullYear();
+          endMonth = lastLeaveDate.getMonth();
+      }
+  }
+
+  let y = startYear;
+  let m = startMonth;
+  let balanceAtViewDate = { CL: 0, PL: 0 };
+
+  while (y < endYear || (y === endYear && m <= endMonth)) {
+      // 1. Earn leaves for this month
+      if (y === joiningYear && m === joiningMonth && isAfterJune) {
+          if (joiningDay <= 7) {
+              currentCL += 1;
+              currentPL += 1;
+          } else if (joiningDay <= 20) {
+              currentPL += 1;
+          }
+      } else {
+          currentCL += 1;
+          currentPL += 1;
+      }
+
+      // 2. Process and deplete leaves in this month
+      const thresholdDateStr = isAfterJune ? joiningDateStr : "2026-07-01";
+      const monthLeaves = allLeaves.filter(l => {
+          const [ly, lm] = l.date.split('-').map(Number);
+          return ly === y && (lm - 1) === m && l.date >= thresholdDateStr;
+      });
+
+      for (const leave of monthLeaves) {
+          let duration = leave.duration || 1;
+
+          if (currentCL >= duration) {
+              currentCL -= duration;
+          } else if (currentPL >= duration) {
+              currentPL -= duration;
+          } else {
+              if (currentCL > 0) {
+                  duration -= currentCL;
+                  currentCL = 0;
+              }
+              if (currentPL >= duration) {
+                  currentPL -= duration;
+              } else {
+                  if (currentPL > 0) {
+                      currentPL = 0;
+                  }
+              }
+          }
+      }
+
+      if (y === viewYear && m === viewMonth) {
+          balanceAtViewDate = { CL: currentCL, PL: currentPL };
+      }
+
+      m++;
+      if (m > 11) {
+          m = 0;
+          y++;
+      }
+  }
+
+  if (viewYear < startYear || (viewYear === startYear && viewMonth < startMonth)) {
+      balanceAtViewDate = { CL: CL, PL: PL };
+  }
+
+  return balanceAtViewDate;
+};
 
 const DEFAULT_WORKLOAD: Workload = {
   totalVideos: 60,
@@ -73,8 +275,29 @@ const App: React.FC = () => {
   const authEmail = authUser?.email;
   const isAdmin = authEmail === 'nithin.yadav.amaraboina@gmail.com';
   const currentUserWorker = useMemo(() => workers.find(w => w.email === authEmail), [workers, authEmail]);
-  const isTL = currentUserWorker?.role === 'TL';
+  const isTL = currentUserWorker?.role === 'TL' || currentUserWorker?.role === 'Manager';
+  const isEditor = currentUserWorker?.role === 'Editor';
   const isTeamMember = !!currentUserWorker;
+
+  const leaveBalance = useMemo(() => {
+    if (!currentUserWorker) return null;
+    return calculateLeaveBalances(currentUserWorker);
+  }, [currentUserWorker]);
+
+  const hasSyncedInitialLanguage = useRef(false);
+
+  useEffect(() => {
+    if (!authEmail) {
+      hasSyncedInitialLanguage.current = false;
+    } else if (currentUserWorker && !hasSyncedInitialLanguage.current) {
+      const userLang = currentUserWorker.language || 'Telugu';
+      setCurrentUser(prev => ({
+        ...prev,
+        language: userLang
+      }));
+      hasSyncedInitialLanguage.current = true;
+    }
+  }, [currentUserWorker, authEmail]);
 
   useEffect(() => {
     if (authUser && !authLoading) {
@@ -92,7 +315,10 @@ const App: React.FC = () => {
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [editingBatch, setEditingBatch] = useState<Batch | null>(null); 
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [showLeaveDropdown, setShowLeaveDropdown] = useState(false);
+  const [showMobileNav, setShowMobileNav] = useState(false);
+
   
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'idle'>('idle');
@@ -158,7 +384,14 @@ const App: React.FC = () => {
     const migrated = migrateBatches(batches);
     if (!plan) return migrated.map(b => ({...b, progress: 0, completedNormal: 0}));
 
-    const stats: Record<string, { assignedGen: number, assignedEdit: number, assignedNormal: number }> = {};
+    const stats: Record<string, { 
+        completedGenRows: Set<string>; 
+        completedEditRows: Set<string>; 
+        completedNormalRows: Set<string>;
+        legacyGen: number;
+        legacyEdit: number;
+        legacyNormal: number;
+    }> = {};
     
     // Helper to parse dummies to set
     const parseDummies = (str?: string) => {
@@ -181,69 +414,183 @@ const App: React.FC = () => {
         return set;
     };
 
-    // Helper to count valid rows (token based, not unique Set based)
-    const countValidRows = (str: string, dummySet: Set<number>) => {
-        if (!str) return 0;
-        const tokens = str.trim().split(/[\s,]+/).filter(Boolean);
-        let count = 0;
-        tokens.forEach(t => {
-            const n = parseInt(t);
-            if (!isNaN(n) && !dummySet.has(n)) {
-                count++;
-            }
-        });
-        return count;
+    const normalizeToken = (s: string) => {
+        const str = s.trim();
+        if (!str) return null;
+        const match = str.match(/^0*(\d+)([a-zA-Z]?)$/);
+        if (!match) return null;
+        const n = parseInt(match[1], 10);
+        if (isNaN(n)) return null;
+        const v = match[2].toLowerCase();
+        return { raw: str, num: n, key: v ? `${n}${v}` : `${n}`, ver: v };
     };
 
     (plan.schedule || []).forEach(day => {
         (day.assignments || []).forEach(task => {
             if (task.batchId && task.batchId !== 'DEFAULT') {
-                if (!stats[task.batchId]) stats[task.batchId] = { assignedGen: 0, assignedEdit: 0, assignedNormal: 0 };
-                
-                const batch = migrated.find(b => b.id === task.batchId);
-                const dummySet = batch ? parseDummies(batch.dummyRows) : new Set<number>();
-                const normalSet = batch ? parseNormalRows(batch.normalRows) : new Set<number>();
-
-                if (task.assignedGenRows && task.assignedGenRows.trim().length > 0) {
-                    stats[task.batchId].assignedGen += countValidRows(task.assignedGenRows, dummySet);
-                } else {
-                    stats[task.batchId].assignedGen += task.generations;
+                if (!stats[task.batchId]) {
+                    stats[task.batchId] = { 
+                        completedGenRows: new Set<string>(), 
+                        completedEditRows: new Set<string>(), 
+                        completedNormalRows: new Set<string>(),
+                        legacyGen: 0,
+                        legacyEdit: 0,
+                        legacyNormal: 0
+                    };
                 }
+                
+                const isTaskCompleted = (task.status || 'Completed') === 'Completed' || task.status === 'Rework';
+                if (isTaskCompleted) {
+                    const batch = migrated.find(b => b.id === task.batchId);
+                    const dummySet = batch ? parseDummies(batch.dummyRows) : new Set<number>();
+                    const normalSet = batch ? parseNormalRows(batch.normalRows) : new Set<number>();
 
-                if (task.assignedEditRows && task.assignedEditRows.trim().length > 0) {
-                    const tokens = task.assignedEditRows.trim().split(/[\s,]+/).filter(Boolean);
-                    tokens.forEach(t => {
-                        const n = parseInt(t);
-                        if (!isNaN(n) && !dummySet.has(n)) {
-                            if (normalSet.has(n)) {
-                                stats[task.batchId].assignedNormal += 1;
-                            } else {
-                                stats[task.batchId].assignedEdit += 1;
+                    if (task.assignedGenRows && task.assignedGenRows.trim().length > 0) {
+                        const tokens = task.assignedGenRows.trim().split(/[\s,]+/).filter(Boolean);
+                        tokens.forEach(tokStr => {
+                            const t = normalizeToken(tokStr);
+                            if (t && !dummySet.has(t.num)) {
+                                stats[task.batchId].completedGenRows.add(t.key);
                             }
-                        }
-                    });
-                } else {
-                    stats[task.batchId].assignedEdit += task.edits;
+                        });
+                    } else {
+                        stats[task.batchId].legacyGen += task.generations;
+                    }
+
+                    if (task.assignedEditRows && task.assignedEditRows.trim().length > 0) {
+                        const tokens = task.assignedEditRows.trim().split(/[\s,]+/).filter(Boolean);
+                        tokens.forEach(tokStr => {
+                            const t = normalizeToken(tokStr);
+                            if (t && !dummySet.has(t.num)) {
+                                if (!t.ver && normalSet.has(t.num)) {
+                                    stats[task.batchId].completedNormalRows.add(t.key);
+                                } else {
+                                    stats[task.batchId].completedEditRows.add(t.key);
+                                }
+                            }
+                        });
+                    } else {
+                        stats[task.batchId].legacyEdit += task.edits;
+                    }
                 }
             }
         });
     });
 
     return migrated.map(b => {
-        const s = stats[b.id] || { assignedGen: 0, assignedEdit: 0, assignedNormal: 0 };
-        const total = b.aiVideos + (b.aiVideos + b.normalVideos);
-        const done = s.assignedGen + s.assignedEdit + s.assignedNormal;
-        const p = total > 0 ? Math.round((done / total) * 100) : 0;
-        
+        const s = stats[b.id];
+        let assignedGen = 0;
+        let assignedEdit = 0;
+        let assignedNormal = 0;
+
+        if (s) {
+            assignedGen += s.legacyGen;
+            assignedEdit += s.legacyEdit;
+            assignedNormal += s.legacyNormal;
+        }
+
+        const dummySet = parseDummies(b.dummyRows);
+        const normalSet = parseNormalRows(b.normalRows);
+        const start = b.startRow !== undefined ? b.startRow : 2;
+        const end = b.endRow !== undefined ? b.endRow : (b.aiVideos + b.normalVideos + start - 1);
+
+        for (let i = start; i <= end; i++) {
+            if (dummySet.has(i)) continue;
+
+            // AI Video Gen (counted regardless of normal/AI status if completed)
+            if (s && (s.completedGenRows.has(`${i}`) || s.completedGenRows.has(`${i}h`) || s.completedGenRows.has(`${i}v`) || s.completedGenRows.has(`${i}s`))) {
+                assignedGen += 1;
+            }
+
+            if (normalSet.has(i)) {
+                if (s && s.completedNormalRows.has(`${i}`)) {
+                    assignedNormal += 1;
+                }
+            } else {
+                // AI Video Edit
+                if (s) {
+                    const hasBase = s.completedEditRows.has(`${i}`);
+                    const hasH = s.completedEditRows.has(`${i}h`);
+                    const hasV = s.completedEditRows.has(`${i}v`);
+                    const hasS = s.completedEditRows.has(`${i}s`);
+                    
+                    if (b.horizontalVersions || b.verticalVersions || b.squareVersions) {
+                        if (hasBase) {
+                            assignedEdit += 1;
+                        } else {
+                            let score = 0;
+                            if (b.horizontalVersions && hasH) score += 0.25;
+                            if (b.verticalVersions && hasV) score += 0.25;
+                            if (b.squareVersions && hasS) score += 0.25;
+                            assignedEdit += score;
+                        }
+                    } else {
+                        if (hasBase) {
+                            assignedEdit += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        const versionsTotal = ((b.horizontalVersions || 0) + (b.verticalVersions || 0) + (b.squareVersions || 0)) * 0.25;
+        const total = b.aiVideos + (b.aiVideos + b.normalVideos) + versionsTotal;
+        const done = assignedGen + assignedEdit + assignedNormal;
+
+        // Check for physical pending rows in the actual row range
+        let hasPendingRow = false;
+        for (let i = start; i <= end; i++) {
+            if (dummySet.has(i)) continue;
+            
+            if (normalSet.has(i)) {
+                if (!s || !s.completedNormalRows.has(`${i}`)) {
+                    hasPendingRow = true;
+                    break;
+                }
+            } else {
+                // AI Video Gen Check
+                const isGenDone = s && (s.completedGenRows.has(`${i}`) || s.completedGenRows.has(`${i}h`) || s.completedGenRows.has(`${i}v`) || s.completedGenRows.has(`${i}s`));
+                if (!isGenDone) {
+                    hasPendingRow = true;
+                    break;
+                }
+                
+                // AI Video Edit Check
+                if (!s) {
+                    hasPendingRow = true;
+                    break;
+                }
+                const hasBase = s.completedEditRows.has(`${i}`);
+                if (!hasBase) {
+                    let editPending = false;
+                    if (b.horizontalVersions && !s.completedEditRows.has(`${i}h`)) editPending = true;
+                    if (b.verticalVersions && !s.completedEditRows.has(`${i}v`)) editPending = true;
+                    if (b.squareVersions && !s.completedEditRows.has(`${i}s`)) editPending = true;
+                    if (!b.horizontalVersions && !b.verticalVersions && !b.squareVersions) editPending = true;
+                    
+                    if (editPending) {
+                        hasPendingRow = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        let p = total > 0 ? Math.round((done / total) * 100) : 0;
+        if (hasPendingRow && p >= 100) {
+            p = 99; // Cap at 99% if we physically have pending unassigned/uncompleted rows
+        }
+
         return {
             ...b,
-            completedGen: s.assignedGen,
-            completedEdit: s.assignedEdit,
-            completedNormal: s.assignedNormal,
+            completedGen: assignedGen,
+            completedEdit: assignedEdit + assignedNormal,
+            completedNormal: assignedNormal,
             totalGen: b.aiVideos,
-            totalEdit: b.aiVideos,
+            totalEdit: b.aiVideos + b.normalVideos + versionsTotal,
             totalNormal: b.normalVideos,
-            progress: Math.min(100, p)
+            totalVersions: (b.horizontalVersions || 0) + (b.verticalVersions || 0) + (b.squareVersions || 0),
+            progress: Math.min(100, Math.max(0, p))
         };
     });
   }, [plan, batches, workers]);
@@ -261,8 +608,8 @@ const App: React.FC = () => {
     }
     
     if (isTeamMember) {
-        // Show only their row
-        return list.filter(w => w.email === authEmail);
+        // Show the entire team
+        return list;
     }
     
     // If not part of the team, show nothing
@@ -311,7 +658,7 @@ const App: React.FC = () => {
       if (savedPrefs) {
         try {
           const parsed = JSON.parse(savedPrefs);
-          if (parsed.isDarkMode !== undefined) setIsDarkMode(parsed.isDarkMode);
+
           if (parsed.currentUser) setCurrentUser(parsed.currentUser);
         } catch (e) {
           console.error("Failed to load preferences", e);
@@ -363,7 +710,7 @@ const App: React.FC = () => {
 
              const isUserAdmin = authUser.email === 'nithin.yadav.amaraboina@gmail.com';
              const userWorker = migratedWorkers.find((w: Worker) => w.email === authUser.email);
-             const isUserTL = userWorker?.role === 'TL';
+             const isUserTL = userWorker?.role === 'TL' || userWorker?.role === 'Manager';
              const isUserTeamMember = !!userWorker;
 
              if (!isUserAdmin && !isUserTL && !isUserTeamMember) {
@@ -480,24 +827,19 @@ const App: React.FC = () => {
       }
   }, [projectStatus, projectMeta?.id]);
 
-  // Save User Preferences & Manage Dark Mode Class
+  // Save User Preferences and Force Light Mode
   useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-
+    document.documentElement.classList.remove('dark');
     if (isInitialMount.current) {
       isInitialMount.current = false;
       return;
     }
     try {
-      localStorage.setItem('wedo_preferences', JSON.stringify({ isDarkMode, currentUser }));
+      localStorage.setItem('wedo_preferences', JSON.stringify({ currentUser }));
     } catch (e) {
       console.error("Failed to save preferences", e);
     }
-  }, [isDarkMode, currentUser]);
+  }, [currentUser]);
 
   // Continuous Auto-Save to Cloud
   useEffect(() => {
@@ -534,6 +876,39 @@ const App: React.FC = () => {
     }
     lastLocalUpdate.current = Date.now();
   }, [workers, batches, languages, workload]);
+
+  // Local sliding history checkpoints
+  useEffect(() => {
+    if (!workers || workers.length === 0) return;
+    try {
+      const backupStr = localStorage.getItem('wedo_workers_checkpoints');
+      let backups = backupStr ? JSON.parse(backupStr) : [];
+      if (!Array.isArray(backups)) backups = [];
+      
+      const currentHash = JSON.stringify(workers);
+      const lastBackup = backups[backups.length - 1];
+      
+      if (!lastBackup || JSON.stringify(lastBackup.workers) !== currentHash) {
+        const leavesCount = workers.reduce((sum, w) => sum + (w.leaves?.length || 0), 0);
+        
+        // Push new rolling checkpoint (restrict to 30)
+        backups.push({
+          id: Date.now().toString(),
+          timestamp: new Date().toISOString(),
+          label: `Auto-Save (${new Date().toLocaleTimeString()}) - ${leavesCount} Leaves`,
+          workers: workers
+        });
+        
+        if (backups.length > 30) {
+          backups.shift();
+        }
+        
+        localStorage.setItem('wedo_workers_checkpoints', JSON.stringify(backups));
+      }
+    } catch (e) {
+      console.error("Failed to write sliding history checkpoint", e);
+    }
+  }, [workers]);
 
   // Presence Tracking
   useEffect(() => {
@@ -1212,6 +1587,39 @@ const App: React.FC = () => {
       }
   };
 
+  const handleUpdateProjectField = async (fields: any) => {
+    if (!projectMeta?.id) return;
+    try {
+      setSaveStatus('saving');
+      await updateProjectFieldInCloud(projectMeta.id, fields);
+      setProjectMeta(prev => prev ? { ...prev, ...fields } : prev);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (e) {
+      console.error("Failed to update project fields:", e);
+      showToast("Failed to save Google Chat Settings.");
+      setSaveStatus('idle');
+    }
+  };
+
+  const handleNotifyGoogleChat = async (dayNum: number, lang: string): Promise<{ success: boolean; message?: string }> => {
+    if (!plan) {
+      showToast("No active project plan exists.");
+      return { success: false, message: "No active project plan." };
+    }
+    const dayPlan = plan.schedule.find(d => d.day === dayNum);
+    if (!dayPlan) {
+      showToast("Schedule day not found.");
+      return { success: false, message: "Schedule day not found." };
+    }
+    
+    setSaveStatus('saving');
+    showToast("Assignments saved!");
+    setSaveStatus('saved');
+    setTimeout(() => setSaveStatus('idle'), 1500);
+    return { success: true };
+  };
+
   const toggleAdminMode = () => {
       if (currentView === 'admin') setCurrentView('daily');
       else setCurrentView('admin');
@@ -1255,6 +1663,7 @@ const App: React.FC = () => {
         onSave={handleSaveBatch}
         currentLanguage={currentUser.language}
         initialData={editingBatch}
+        batches={globalBatchesProgress}
       />
       
       <SavePlanModal
@@ -1274,6 +1683,8 @@ const App: React.FC = () => {
         onExportData={handleExportData}
         onImportData={handleImportData}
         onError={showToast}
+        projectMeta={projectMeta}
+        onUpdateProjectField={handleUpdateProjectField}
       />
       
       {loading && (
@@ -1296,7 +1707,7 @@ const App: React.FC = () => {
               <img 
                 src="https://wedomarketing.co.in/wp-content/uploads/2024/04/cropped-1-1536x880.png" 
                 alt="WeDo Marketing" 
-                className="h-8 md:h-9 w-auto object-contain" 
+                className="h-8 md:h-9 w-auto object-contain hidden sm:block" 
               />
               <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
               
@@ -1327,123 +1738,225 @@ const App: React.FC = () => {
                             setCloudSaving(false);
                         }}
                         disabled={cloudSaving}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors"
-                        title="Sync to Cloud"
+                        className="hidden sm:inline-flex p-1.5 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg transition-colors relative"
+                        title={cloudSaving ? "Syncing..." : "Sync to Cloud"}
+                        id="header-sync-btn"
                     >
-                        {cloudSaving ? <Loader2 size={14} className="animate-spin" /> : "Sync"}
+                        {cloudSaving || saveStatus === 'saving' ? (
+                            <Loader2 size={18} className="text-[#F26C21] animate-spin" />
+                        ) : (
+                            <Cloud size={18} className={projectMeta?.synced ? "text-emerald-500" : "text-slate-400 dark:text-slate-500 hover:text-[#F26C21]"} />
+                        )}
                     </button>
-                    {(isAdmin || isTL) && (
-                        <button 
-                            onClick={() => setShowSettingsModal(true)}
-                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg transition-colors"
-                            title="Settings"
-                        >
-                            <Settings size={18} />
-                        </button>
-                    )}
+
                 </div>
               )}
             </div>
 
             {/* Navigation Tabs */}
-            {(isAdmin || isTL) && (
-                <div className="flex bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-full ml-2 md:ml-6 border border-slate-200/50 dark:border-slate-700/50 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                <button 
-                    onClick={() => setCurrentView('daily')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'daily' ? 'bg-white dark:bg-slate-700 text-[#F26C21] dark:text-[#F26C21] shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
-                >
-                    <ListChecks size={14} /> Daily
-                </button>
-                <button 
-                    onClick={() => setCurrentView('assign')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'assign' ? 'bg-white dark:bg-slate-700 text-[#F26C21] dark:text-[#F26C21] shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
-                >
-                    <UserCheck size={14} /> Assign
-                </button>
-                <button 
-                    onClick={() => setCurrentView('leaves')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'leaves' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
-                >
-                    <Calendar size={14} /> Leaves
-                </button>
-                <button 
-                    onClick={() => setCurrentView('ai-manager')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'ai-manager' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
-                >
-                    <Brain size={14} /> AI Insights
-                </button>
-                </div>
-            )}
-            {isTeamMember && !(isAdmin || isTL) && (
-                <div className="flex bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-full ml-2 md:ml-6 border border-slate-200/50 dark:border-slate-700/50 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-                <button 
-                    onClick={() => setCurrentView('daily')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'daily' ? 'bg-white dark:bg-slate-700 text-[#F26C21] dark:text-[#F26C21] shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
-                >
-                    <ListChecks size={14} /> Daily
-                </button>
-                <button 
-                    onClick={() => setCurrentView('leaves')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === 'leaves' ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
-                >
-                    <Calendar size={14} /> Leaves
-                </button>
-                </div>
-            )}
+            {(() => {
+                const navOptions = [];
+                if (isAdmin || isTL) {
+                    navOptions.push({ id: 'daily', icon: <Home size={14} />, label: 'Home' });
+                    navOptions.push({ id: 'ai-manager', icon: <Trophy size={14} />, label: 'Leaderboard' });
+                    if (isAdmin || currentUserWorker?.role === 'Manager') {
+                        navOptions.push({ id: 'assign', icon: <UserCheck size={14} />, label: 'Assign' });
+                        navOptions.push({ id: 'leaves', icon: <Calendar size={14} />, label: 'Leaves' });
+                    }
+                } else if (isTeamMember) {
+                    navOptions.push({ id: 'daily', icon: <Home size={14} />, label: 'Home' });
+                    navOptions.push({ id: 'ai-manager', icon: <Trophy size={14} />, label: 'Leaderboard' });
+                }
+
+                if (navOptions.length === 0) return null;
+
+                const activeOption = navOptions.find(o => o.id === currentView) || navOptions[0];
+
+                return (
+                    <div className="hidden md:block ml-2 md:ml-6 relative">
+                        {/* Desktop Tabs */}
+                        <div className="flex bg-slate-100/80 dark:bg-slate-800/80 p-1 rounded-full border border-slate-200/50 dark:border-slate-700/55 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+                            {navOptions.map(opt => (
+                                <button
+                                    key={opt.id}
+                                    onClick={() => setCurrentView(opt.id as any)}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${currentView === opt.id ? 'bg-white dark:bg-slate-700 text-[#F26C21] dark:text-[#F26C21] shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
+                                >
+                                    {opt.icon} {opt.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                );
+            })()}
         </div>
 
-        <div className="flex items-center gap-3">
-             {/* Share Dashboard Button */}
-             {projectStatus === 'active' && projectMeta?.id && (
-                <button 
-                    onClick={() => {
-                        const url = `${window.location.origin}/editors-dashboard.html?id=${projectMeta.id}`;
-                        navigator.clipboard.writeText(url);
-                        showToast("Dashboard link copied to clipboard!");
-                    }}
-                    className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800 rounded-lg text-xs font-bold hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all"
-                    title="Copy Live Dashboard Link"
-                >
-                    <Globe size={14} /> Share
-                </button>
+        <div className="flex items-center gap-2 md:gap-3">
+             {/* Mobile Navigation Dropdown */}
+             {(() => {
+                const navOptions = [];
+                if (isAdmin || isTL) {
+                    navOptions.push({ id: 'daily', icon: <Home size={14} />, label: 'Home' });
+                    navOptions.push({ id: 'ai-manager', icon: <Trophy size={14} />, label: 'Leaderboard' });
+                    if (isAdmin || currentUserWorker?.role === 'Manager') {
+                        navOptions.push({ id: 'assign', icon: <UserCheck size={14} />, label: 'Assign' });
+                        navOptions.push({ id: 'leaves', icon: <Calendar size={14} />, label: 'Leaves' });
+                    }
+                } else if (isTeamMember) {
+                    navOptions.push({ id: 'daily', icon: <Home size={14} />, label: 'Home' });
+                    navOptions.push({ id: 'ai-manager', icon: <Trophy size={14} />, label: 'Leaderboard' });
+                }
+
+                if (navOptions.length === 0) return null;
+
+                const activeOption = navOptions.find(o => o.id === currentView) || navOptions[0];
+
+                return (
+                    <div className="md:hidden relative">
+                        <button
+                            onClick={() => setShowMobileNav(!showMobileNav)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-white dark:bg-slate-700 text-[#F26C21] shadow-sm ring-1 ring-slate-200/50 dark:ring-slate-600/50"
+                        >
+                            {activeOption.icon} {activeOption.label} <ChevronDown size={14} className={`transition-transform ${showMobileNav ? 'rotate-180' : ''}`} />
+                        </button>
+                        {showMobileNav && (
+                            <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-100 dark:border-slate-700 py-1 z-50">
+                                {navOptions.map(opt => (
+                                    <button
+                                        key={opt.id}
+                                        onClick={() => {
+                                            setCurrentView(opt.id as any);
+                                            setShowMobileNav(false);
+                                        }}
+                                        className={`w-full text-left flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors ${currentView === opt.id ? 'bg-slate-50 dark:bg-slate-700/50 text-[#F26C21]' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50'}`}
+                                    >
+                                        {opt.icon} {opt.label}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                );
+             })()}
+
+             {/* Respective User Leave Balance Pill (Hidden on Mobile) */}
+             {currentUserWorker && leaveBalance && (
+                <div className="relative hidden sm:block">
+                  <button 
+                    onClick={() => setShowLeaveDropdown(!showLeaveDropdown)}
+                    className="flex items-center gap-2 px-3 py-1 bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/20 dark:hover:bg-teal-900/40 border border-teal-100 dark:border-teal-900/30 rounded-full text-xs font-bold text-slate-600 dark:text-slate-350 select-none shadow-sm cursor-pointer transition-all"
+                  >
+                    <Calendar size={13} className="text-teal-600 dark:text-teal-400" />
+                    <span>
+                      Leave Balance: <span className="text-teal-600 dark:text-teal-400 font-extrabold">{(leaveBalance.CL || 0) + (leaveBalance.PL || 0)}</span>
+                    </span>
+                    <ChevronDown size={12} className="text-teal-500" />
+                  </button>
+                  
+                  {/* Click Tooltip Dropdown */}
+                  {showLeaveDropdown && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setShowLeaveDropdown(false)}></div>
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 w-max px-3 py-2 bg-slate-800 dark:bg-slate-700 text-white text-xs font-medium rounded shadow-lg z-40 flex flex-col gap-1 animate-in fade-in slide-in-from-top-2 duration-150">
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-slate-300">Casual Leave (CL):</span>
+                          <span className="font-bold text-teal-400">{leaveBalance.CL}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-4">
+                          <span className="text-slate-300">Paid Leave (PL):</span>
+                          <span className="font-bold text-teal-400">{leaveBalance.PL}</span>
+                        </div>
+                        {/* Tooltip Arrow */}
+                        <div className="absolute -top-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 dark:bg-slate-700 rotate-45 border-t border-l border-transparent"></div>
+                      </div>
+                    </>
+                  )}
+                </div>
              )}
 
-             {/* Dark Mode Toggle */}
-             <button
-                onClick={() => setIsDarkMode(!isDarkMode)}
-                className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-             >
-                {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
-             </button>
+             {/* User Profile Info & Dropdown -> Extreme Right */}
+             {authUser && (
+                <div className="relative">
+                  <button 
+                     onClick={() => setShowProfileDropdown(!showProfileDropdown)}
+                     className="flex items-center gap-2 px-3 py-1 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 border border-slate-200/50 dark:border-slate-700/55 rounded-full select-none transition-all cursor-pointer"
+                  >
+                    <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-[#F26C21] to-amber-500 flex items-center justify-center text-white text-[9px] font-black uppercase shadow-sm">
+                       {authUser.displayName ? authUser.displayName.charAt(0) : (currentUserWorker?.name?.charAt(0) || authUser.email?.charAt(0) || 'U')}
+                    </div>
+                    <span className="hidden sm:inline text-xs font-bold text-slate-700 dark:text-slate-300 truncate max-w-[100px]">
+                       {currentUserWorker?.name || authUser.displayName || authUser.email?.split('@')[0]}
+                    </span>
+                    <ChevronDown size={14} className="text-slate-400 dark:text-slate-500" />
+                  </button>
 
-             {/* Sign Out Button */}
-             <button
-                onClick={() => signOutUser().catch(console.error)}
-                className="p-2 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-red-100 dark:hover:bg-red-900/40 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                title="Sign Out"
-             >
-                <LogOut size={18} />
-             </button>
+                  {showProfileDropdown && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setShowProfileDropdown(false)}></div>
+                      <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl shadow-lg z-40 py-1.5 animate-in fade-in slide-in-from-top-2 duration-150">
+                        <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">{currentUserWorker?.name || authUser.displayName || authUser.email?.split('@')[0]}</p>
+                          <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate mt-0.5">{authUser.email}</p>
+                        </div>
+                        
+                        {/* Mobile Leave Balance inside Profile Dropdown */}
+                        {currentUserWorker && leaveBalance && (
+                          <div className="sm:hidden px-3 py-2 border-b border-slate-100 dark:border-slate-800 mb-1 flex flex-col gap-1">
+                            <div className="flex items-center justify-between text-xs font-medium">
+                              <span className="text-slate-600 dark:text-slate-400 flex items-center gap-1.5"><Calendar size={13} className="text-teal-500" /> Total Leaves:</span>
+                              <span className="text-teal-600 dark:text-teal-400 font-bold">{(leaveBalance.CL || 0) + (leaveBalance.PL || 0)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-500">
+                              <span>Casual (CL):</span>
+                              <span>{leaveBalance.CL || 0}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-500">
+                              <span>Paid (PL):</span>
+                              <span>{leaveBalance.PL || 0}</span>
+                            </div>
+                          </div>
+                        )}
 
-            {/* Dashboard Toggle - Hidden on Mobile */}
-            {(isAdmin || isTL) && (
-                <button 
-                    onClick={toggleAdminMode}
-                    className={`hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg font-bold text-xs md:text-sm transition-all ${currentView === 'admin' ? 'bg-slate-800 text-white dark:bg-slate-700' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                >
-                    {currentView === 'admin' ? <><ArrowLeft size={14}/> Back</> : <><Shield size={14}/> Dashboard</>}
-                </button>
-            )}
-            
-            {plan && (
-                <div className="w-10 h-10 hidden md:flex items-center justify-center rounded-full bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700" title={cloudSaving ? "Syncing..." : "Saved"}>
-                    {cloudSaving || saveStatus === 'saving' ? (
-                        <RefreshCw size={18} className="text-blue-500 animate-spin" />
-                    ) : (
-                        <Cloud size={18} className={projectMeta?.synced ? "text-green-500" : "text-slate-400 dark:text-slate-500"} />
-                    )}
+                        {(isAdmin || isTL) && (
+                          <>
+                            <button
+                              onClick={() => {
+                                setShowProfileDropdown(false);
+                                toggleAdminMode();
+                              }}
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850/60 flex items-center gap-2 transition-colors cursor-pointer"
+                            >
+                              <Shield size={14} className="text-[#F26C21]" />
+                              <span>{currentView === 'admin' ? 'Exit Dashboard' : 'Dashboard'}</span>
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                setShowProfileDropdown(false);
+                                setShowSettingsModal(true);
+                              }}
+                              className="w-full text-left px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-850/60 flex items-center gap-2 transition-colors cursor-pointer"
+                            >
+                              <Settings size={14} className="text-[#F26C21]" />
+                              <span>Settings</span>
+                            </button>
+                            <div className="border-t border-slate-100 dark:border-slate-800 my-1"></div>
+                          </>
+                        )}
+                        <button
+                          onClick={() => {
+                            setShowProfileDropdown(false);
+                            signOutUser().catch(console.error);
+                          }}
+                          className="w-full text-left px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 flex items-center gap-2 transition-colors cursor-pointer"
+                        >
+                          <LogOut size={14} /> Sign Out
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
-            )}
+             )}
         </div>
       </header>
 
@@ -1462,8 +1975,32 @@ const App: React.FC = () => {
             />
         )}
 
+        {/* VIEW: AI MANAGER */}
+        {(isAdmin || isTL || isTeamMember) && currentView === 'ai-manager' && (
+          <main className="flex-1 h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 p-4 lg:p-6">
+            {plan ? (
+              <AIManager 
+                plan={plan}
+                workers={workers}
+                batches={globalBatchesProgress}
+                workload={workload}
+                currentLanguage={currentUser.language}
+                apiKey={process.env.GEMINI_API_KEY || ''}
+              />
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 border-dashed">
+                <div className="w-24 h-24 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mb-6">
+                  <Trophy size={40} className="text-slate-300 dark:text-slate-600" />
+                </div>
+                <h3 className="text-xl font-black text-slate-700 dark:text-slate-300">No Plan Available</h3>
+                <p className="text-slate-400 dark:text-slate-500 mt-2 max-w-xs text-center text-sm">Generate or load a plan first to view the leaderboard.</p>
+              </div>
+            )}
+          </main>
+        )}
+
         {/* VIEW: LEAVES */}
-        {(isAdmin || isTL || isTeamMember) && currentView === 'leaves' && (
+        {(isAdmin || currentUserWorker?.role === 'Manager') && currentView === 'leaves' && (
           <main className="flex-1 w-full h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 p-4 lg:p-6">
             <LeaveManagement 
                 workers={workers} 
@@ -1476,30 +2013,6 @@ const App: React.FC = () => {
           </main>
         )}
 
-        {/* VIEW: AI MANAGER */}
-        {(isAdmin || isTL) && currentView === 'ai-manager' && (
-          <main className="flex-1 h-full overflow-y-auto bg-slate-50 dark:bg-slate-950 p-4 lg:p-6">
-            {plan ? (
-              <AIManager 
-                plan={plan}
-                workers={filteredWorkers}
-                batches={filteredBatches}
-                workload={workload}
-                currentLanguage={currentUser.language}
-                apiKey={process.env.GEMINI_API_KEY || ''}
-              />
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 border-dashed">
-                <div className="w-24 h-24 bg-slate-50 dark:bg-slate-800 rounded-full flex items-center justify-center mb-6">
-                  <Brain size={40} className="text-slate-300 dark:text-slate-600" />
-                </div>
-                <h3 className="text-xl font-black text-slate-700 dark:text-slate-300">No Plan Available</h3>
-                <p className="text-slate-400 dark:text-slate-500 mt-2 max-w-xs text-center text-sm">Generate or load a plan first to view AI insights.</p>
-              </div>
-            )}
-          </main>
-        )}
-
         {/* VIEW: DAILY UPDATE */}
         {currentView === 'daily' && (
           <main className="flex-1 h-full overflow-hidden bg-slate-50 dark:bg-slate-950 p-4 lg:p-6">
@@ -1508,16 +2021,21 @@ const App: React.FC = () => {
                  plan={plan} 
                  workload={workload} 
                  workers={filteredWorkers} // Filtered for default view
-                 allWorkers={isAdmin || isTL ? workers : filteredWorkers} // Pass all for add functionality, or just themselves for team members
+                 allWorkers={workers} // Pass all workers for lookup and leaderboard / stats
                  batches={filteredBatches} // Pass Filtered Batches
+                 allBatches={globalBatchesProgress}
                  leaves={leaves} // Pass leaves state
                  onUpdatePlan={handlePlanUpdate}
                  onToggleLeave={toggleLeave}
                  onDeleteBatch={handleDeleteBatch}
                  onEditBatch={handleEditBatch} 
                  currentLanguage={currentUser.language} 
-                 readOnlyBatches={!isAdmin && !isTL}
+                 readOnlyBatches={!isAdmin && !isTL && !isEditor}
                  onNewBatch={() => { setEditingBatch(null); setShowBatchModal(true); }}
+                 projectMeta={projectMeta}
+                 onNotifyGoogleChat={handleNotifyGoogleChat}
+                 currentUserWorker={currentUserWorker}
+                 onNavigateToLeaderboard={() => setCurrentView('ai-manager')}
                />
              ) : (
                <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 border-dashed">
@@ -1535,7 +2053,7 @@ const App: React.FC = () => {
         )}
 
         {/* VIEW: ASSIGN WORK */}
-        {(isAdmin || isTL) && currentView === 'assign' && (
+        {(isAdmin || currentUserWorker?.role === 'Manager') && currentView === 'assign' && (
           <main className="flex-1 h-full overflow-hidden bg-slate-50 dark:bg-slate-950 p-4 lg:p-6">
              {plan ? (
                <AssignWork 
@@ -1544,9 +2062,11 @@ const App: React.FC = () => {
                  workers={filteredWorkers} 
                  allWorkers={workers} // Pass all
                  batches={filteredBatches}
+                 allBatches={globalBatchesProgress}
                  onUpdatePlan={handlePlanUpdate}
                  onToggleLeave={toggleLeave}
                  currentLanguage={currentUser.language} 
+                 apiKey={process.env.GEMINI_API_KEY || ''}
                />
              ) : (
                <div className="h-full flex flex-col items-center justify-center text-slate-400 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 border-dashed">

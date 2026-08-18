@@ -22,3 +22,19 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Firebase & Secret Keys
+.firebase/
+*-key.json
+*.json.key
+migration_backup/
+.env*
+export-*.mjs
+fast-export.mjs
+import-*.mjs
+verify-migration.mjs
+get-web-config.mjs
+deploy-rules.mjs
+check-releases.mjs
+create-release.mjs
+

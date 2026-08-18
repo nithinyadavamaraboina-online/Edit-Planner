@@ -38,6 +38,9 @@ export interface Batch {
   batchName: string;
   aiVideos: number;
   normalVideos: number;
+  horizontalVersions?: number;
+  verticalVersions?: number;
+  squareVersions?: number;
   startDate?: string;
   endDate?: string;
   status: 'active' | 'completed' | 'archived';
@@ -51,10 +54,12 @@ export interface Batch {
   completedGen?: number;
   completedEdit?: number;
   completedNormal?: number;
+  completedVersions?: number;
   progress?: number;
   totalGen?: number;
   totalEdit?: number;
   totalNormal?: number;
+  totalVersions?: number;
 }
 
 export interface User {
@@ -117,6 +122,8 @@ export interface TaskAssignment {
   plannedEdits?: number; // New: Planned count for editing
   taskLanguage?: string; // New: Language context for this specific task (e.g. 'Hindi' if assigned from Hindi view)
   notes?: string; // New: Notes for other work or learning
+  status?: 'In Progress' | 'Completed' | 'Rework'; // New: Status tracking
+  hoursSpent?: number; // New: Time spent on this batch today (in hours)
 }
 
 export interface DayPlan {

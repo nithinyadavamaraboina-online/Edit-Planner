@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { ProductionPlan, Workload, Worker, Batch, TaskAssignment } from '../types';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Trash2, Split, Zap, FileVideo, PenTool, CornerDownRight } from 'lucide-react';
+import { ProductionPlan, Workload, Worker, Batch, TaskAssignment, AIInsightsResponse } from '../types';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, Plus, Trash2, Split, Zap, FileVideo, PenTool, CornerDownRight, AlertCircle, Brain, AlertTriangle, Loader2, Star, TrendingUp, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { generateAIInsights } from '../services/geminiService';
+import { getRank1WorkerName, getTop3WorkerNames, Rank1Badge } from '../utils/ranking';
 
 interface AssignWorkProps {
   plan: ProductionPlan;
@@ -8,9 +10,11 @@ interface AssignWorkProps {
   workers: Worker[];
   allWorkers?: Worker[];
   batches?: Batch[];
+  allBatches?: Batch[];
   onUpdatePlan: (plan: ProductionPlan, saveToCloud?: boolean, dayToSave?: number, assignmentId?: string, isDeletion?: boolean) => void;
   onToggleLeave?: (workerId: string, day: number, forceState?: boolean, basePlan?: any, duration?: number) => void;
   currentLanguage: string;
+  apiKey?: string;
 }
 
 const AssignWork: React.FC<AssignWorkProps> = ({ 
@@ -19,9 +23,11 @@ const AssignWork: React.FC<AssignWorkProps> = ({
   workers, 
   allWorkers = [],
   batches = [], 
+  allBatches = [],
   onUpdatePlan,
   onToggleLeave,
-  currentLanguage
+  currentLanguage,
+  apiKey = ''
 }) => {
   const getProjectStartDate = () => {
       const [y, m, d] = workload.startDate.split('-').map(Number);
@@ -52,7 +58,39 @@ const AssignWork: React.FC<AssignWorkProps> = ({
       return todayIdx >= 1 ? todayIdx : 1;
   });
 
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
   const [viewDate, setViewDate] = useState(() => getDateFromDayIndex(selectedDay));
+
+  const top3Ranks = useMemo(() => {
+    const listForRank = allWorkers && allWorkers.length > 0 ? allWorkers : workers;
+    const allBatchesList = allBatches && allBatches.length > 0 ? allBatches : batches;
+    return getTop3WorkerNames(plan, listForRank, workload.startDate, allBatchesList);
+  }, [plan, allWorkers, workers, workload.startDate, batches, allBatches]);
+
+  const [insights, setInsights] = useState<AIInsightsResponse | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
+  const [insightsExpanded, setInsightsExpanded] = useState(true);
+
+  const handleGenerateInsights = async () => {
+    if (!apiKey) {
+      setInsightsError("API Key is required to generate AI insights.");
+      return;
+    }
+
+    setInsightsLoading(true);
+    setInsightsError(null);
+    setInsightsExpanded(true);
+
+    try {
+      const result = await generateAIInsights(apiKey, plan, allWorkers.length > 0 ? allWorkers : workers, batches);
+      setInsights(result);
+    } catch (err: any) {
+      setInsightsError(err.message || "Failed to generate insights.");
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
 
   const currentCalendarDate = getDateFromDayIndex(selectedDay);
 
@@ -75,29 +113,31 @@ const AssignWork: React.FC<AssignWorkProps> = ({
 
   const displayedWorkers = useMemo(() => {
       const relevantWorkerIds = new Set<string>();
-      defaultTeam.forEach(w => relevantWorkerIds.add(w.id));
+      if (Array.isArray(defaultTeam)) {
+          defaultTeam.forEach(w => relevantWorkerIds.add(w.id));
+      }
       (currentDayPlan.assignments || []).forEach(task => {
           if (task.taskLanguage) {
               if (task.taskLanguage === currentLanguage) {
                   relevantWorkerIds.add(task.workerId);
               }
           } else {
-              const worker = allWorkers.find(w => w.id === task.workerId);
+              const worker = Array.isArray(allWorkers) ? allWorkers.find(w => w.id === task.workerId) : undefined;
               if (worker && (worker.language || 'Telugu') === currentLanguage) {
                   relevantWorkerIds.add(task.workerId);
               }
               if (worker && (worker.language || 'Telugu') !== currentLanguage) {
-                  const batch = batches.find(b => b.id === task.batchId);
+                  const batch = Array.isArray(batches) ? batches.find(b => b.id === task.batchId) : undefined;
                   if (batch && (batch.language || 'Telugu') === currentLanguage) {
                       relevantWorkerIds.add(task.workerId);
                   }
               }
           }
       });
-      const list = allWorkers.filter(w => relevantWorkerIds.has(w.id));
+      const list = Array.isArray(allWorkers) ? allWorkers.filter(w => relevantWorkerIds.has(w.id)) : [];
       return list.sort((a, b) => {
-          const aIsDefault = defaultTeam.some(dt => dt.id === a.id);
-          const bIsDefault = defaultTeam.some(dt => dt.id === b.id);
+          const aIsDefault = Array.isArray(defaultTeam) && defaultTeam.some(dt => dt.id === a.id);
+          const bIsDefault = Array.isArray(defaultTeam) && defaultTeam.some(dt => dt.id === b.id);
           if (aIsDefault && !bIsDefault) return -1;
           if (!aIsDefault && bIsDefault) return 1;
           return 0;
@@ -236,7 +276,11 @@ const AssignWork: React.FC<AssignWorkProps> = ({
       tokens.forEach(t => {
           const n = parseInt(t);
           if (!isNaN(n) && !dummySet.has(n)) {
-              count++;
+              if (t.toLowerCase().match(/[hvs]$/)) {
+                  count += 0.25;
+              } else {
+                  count += 1;
+              }
           }
       });
       return count;
@@ -246,30 +290,47 @@ const AssignWork: React.FC<AssignWorkProps> = ({
       const dummySet = parseDummies(batch.dummyRows);
       const normalSet = parseNormalRows(batch.normalRows);
       
-      const assignedGenRows = new Set<number>();
-      const assignedEditRows = new Set<number>();
+      const assignedGenRows = new Set<string>();
+      const assignedEditRows = new Set<string>();
       
+      const normalizeToken = (s: string) => {
+         const str = s.trim();
+         if (!str) return null;
+         const match = str.match(/^0*(\d+)([a-zA-Z]?)$/);
+         if (!match) return null;
+         const n = parseInt(match[1], 10);
+         if (isNaN(n)) return null;
+         const v = match[2].toLowerCase();
+         return { raw: str, num: n, key: v ? `${n}${v}` : `${n}`, ver: v };
+      };
+
       plan.schedule.forEach(day => {
           day.assignments.forEach(task => {
               if (task.batchId === batch.id) {
-                  if (task.assignedGenRows) {
-                      task.assignedGenRows.trim().split(/[\s,]+/).forEach(t => {
-                          const n = parseInt(t);
-                          if (!isNaN(n)) assignedGenRows.add(n);
+                  const genStr = task.assignedGenRows || task.plannedGenRows || "";
+                  if (genStr) {
+                      genStr.trim().split(/[\s,]+/).forEach(s => {
+                          const t = normalizeToken(s);
+                          if (t && !dummySet.has(t.num)) {
+                              assignedGenRows.add(t.key);
+                          }
                       });
                   }
-                  if (task.assignedEditRows) {
-                      task.assignedEditRows.trim().split(/[\s,]+/).forEach(t => {
-                          const n = parseInt(t);
-                          if (!isNaN(n)) assignedEditRows.add(n);
+                  const editStr = task.assignedEditRows || task.plannedEditRows || "";
+                  if (editStr) {
+                      editStr.trim().split(/[\s,]+/).forEach(s => {
+                          const t = normalizeToken(s);
+                          if (t && !dummySet.has(t.num)) {
+                              assignedEditRows.add(t.key);
+                          }
                       });
                   }
               }
           });
       });
       
-      const start = batch.startRow || 1;
-      const end = batch.endRow || (batch.aiVideos + batch.normalVideos);
+      const start = batch.startRow !== undefined ? batch.startRow : 2;
+      const end = batch.endRow !== undefined ? batch.endRow : (batch.aiVideos + batch.normalVideos + start - 1);
       
       const pendingGen: number[] = [];
       const pendingEdit: number[] = [];
@@ -279,20 +340,171 @@ const AssignWork: React.FC<AssignWorkProps> = ({
           if (dummySet.has(i)) continue;
           
           if (normalSet.has(i)) {
-              if (!assignedEditRows.has(i)) {
+              if (!assignedEditRows.has(`${i}`)) {
                   pendingNormal.push(i);
               }
           } else {
-              if (!assignedGenRows.has(i)) {
+              const isGenAssigned = assignedGenRows.has(`${i}`) || assignedGenRows.has(`${i}h`) || assignedGenRows.has(`${i}v`) || assignedGenRows.has(`${i}s`);
+              if (!isGenAssigned) {
                   pendingGen.push(i);
               }
-              if (!assignedEditRows.has(i)) {
+              
+              let isEditPending = false;
+              if (batch.horizontalVersions || batch.verticalVersions || batch.squareVersions) {
+                  if (!assignedEditRows.has(`${i}`)) {
+                      if (batch.horizontalVersions && !assignedEditRows.has(`${i}h`)) isEditPending = true;
+                      if (batch.verticalVersions && !assignedEditRows.has(`${i}v`)) isEditPending = true;
+                      if (batch.squareVersions && !assignedEditRows.has(`${i}s`)) isEditPending = true;
+                  }
+              } else {
+                  if (!assignedEditRows.has(`${i}`)) {
+                      isEditPending = true;
+                  }
+              }
+              
+              if (isEditPending) {
                   pendingEdit.push(i);
               }
           }
       }
       
       return { pendingGen, pendingEdit, pendingNormal };
+  };
+
+  const checkDuplicateRows = (inputStr: string, batchId: string | undefined, type: 'gen' | 'edit', currentTaskId: string | undefined) => {
+    if (!inputStr || !batchId || batchId === 'DEFAULT' || batchId === 'LEAVE') return inputStr;
+    
+    const batch = batches.find(b => b.id === batchId);
+    if (!batch) return inputStr;
+
+    const totalRows = batch.aiVideos + batch.normalVideos;
+    const maxRow = batch.endRow !== undefined ? batch.endRow : totalRows + 1;
+    const minRow = batch.startRow !== undefined ? batch.startRow : 2;
+
+    const normalizeToken = (s: string) => {
+       const str = s.trim();
+       if (!str) return null;
+       const match = str.match(/^0*(\d+)([a-zA-Z]?)$/);
+       if (!match) return null;
+       const n = parseInt(match[1], 10);
+       if (isNaN(n)) return null;
+       const v = match[2].toLowerCase();
+       return { raw: str, num: n, key: v ? `${n}${v}` : `${n}`, ver: v };
+    };
+
+    const tokens = inputStr.split(/[\s,]+/).map(normalizeToken).filter((t): t is NonNullable<typeof t> => Boolean(t));
+    if (tokens.length === 0) return inputStr;
+    
+    // Remove internal duplicates
+    const seen = new Set<string>();
+    const uniqueTokens = tokens.filter(t => {
+       if (seen.has(t.key)) return false;
+       seen.add(t.key);
+       return true;
+    });
+
+    let currentTaskStatus = "Completed";
+    plan.schedule.forEach(day => {
+        (day.assignments || []).forEach(assignment => {
+            if (assignment.id === currentTaskId) {
+                currentTaskStatus = assignment.status || "Completed";
+            }
+        });
+    });
+
+    if (currentTaskStatus === "Rework") {
+        return uniqueTokens.map(t => t.key).join(' ');
+    }
+
+    const warnings: string[] = [];
+    const duplicates = new Set<string>();
+    const outOfBounds = new Set<string>();
+
+    uniqueTokens.forEach(t => {
+        if (t.num < minRow || t.num > maxRow) {
+            outOfBounds.add(t.key);
+        }
+    });
+
+    if (outOfBounds.size > 0) {
+        warnings.push(`Row(s) [${Array.from(outOfBounds).join(', ')}] do not belong to the current batch. The valid range is ${minRow} to ${maxRow}.`);
+    }
+
+    const dummySet = batch.dummyRows ? new Set(batch.dummyRows.split(/[\s,]+/).map(Number).filter(n => !isNaN(n))) : new Set<number>();
+    const normalSet = batch.normalRows ? new Set(batch.normalRows.split(/[\s,]+/).map(Number).filter(n => !isNaN(n))) : new Set<number>();
+    
+    const ungeneratedAI = new Set<string>();
+    const invalidNormalForGen = new Set<string>();
+
+    if (type === 'gen') {
+        // Allow users to freely assign AI gens without normalSet restrictions
+    }
+
+    if (type === 'edit') {
+        const generatedSet = new Set<string>();
+        plan.schedule.forEach(day => {
+            (day.assignments || []).forEach(assignment => {
+               if (assignment.batchId === batchId) {
+                   const genStr = assignment.assignedGenRows || assignment.plannedGenRows || '';
+                   genStr.split(/[\s,]+/).forEach(s => {
+                       const t = normalizeToken(s);
+                       if (t) generatedSet.add(t.key);
+                   });
+               }
+            });
+        });
+
+        uniqueTokens.forEach(t => {
+            if (!outOfBounds.has(t.key) && !dummySet.has(t.num) && !normalSet.has(t.num)) {
+                // If it's a version, it might not need independent AI generation, but we require the base row to be generated or the version itself
+                if (!generatedSet.has(t.key) && !generatedSet.has(`${t.num}`)) {
+                    ungeneratedAI.add(t.key);
+                }
+            }
+        });
+        
+        if (ungeneratedAI.size > 0) {
+            warnings.push(`Row(s) [${Array.from(ungeneratedAI).join(', ')}] are AI videos but have not been generated yet. Please add them to the generation column first.`);
+        }
+    }
+
+    plan.schedule.forEach(day => {
+      (day.assignments || []).forEach(assignment => {
+        // Skip duplicate checking if the task is "In Progress", meaning it's not finished
+        // so the user can enter the rows again today.
+        if ((assignment.status || "Completed") !== "Completed") {
+           return;
+        }
+
+        if (assignment.batchId === batchId && assignment.id !== currentTaskId) {
+          const existingRowsStr = type === 'gen' 
+            ? (assignment.assignedGenRows || assignment.plannedGenRows || '')
+            : (assignment.assignedEditRows || assignment.plannedEditRows || '');
+            
+          const existingTokens = new Set(
+             existingRowsStr.split(/[\s,]+/).map(normalizeToken).filter(Boolean).map(t => t!.key)
+          );
+          
+          const overlap = uniqueTokens.filter(t => existingTokens.has(t.key) && !outOfBounds.has(t.key) && !ungeneratedAI.has(t.key) && !invalidNormalForGen.has(t.key));
+          if (overlap.length > 0) {
+            const workerName = workers.find(w => w.id === assignment.workerId)?.name || 'Unknown';
+            const exactDate = getDateFromDayIndex(day.day).toLocaleDateString('default', { month: 'short', day: 'numeric', year: 'numeric' });
+            warnings.push(`Row(s) [${overlap.map(t => t.key).join(', ')}] already assigned to ${workerName} on ${exactDate}.`);
+            overlap.forEach(t => duplicates.add(t.key));
+          }
+        }
+      });
+    });
+
+    if (warnings.length > 0 || uniqueTokens.length !== tokens.length) {
+      if (warnings.length > 0) {
+          setDuplicateWarning(warnings.join('\n\n'));
+      }
+      const cleanTokens = uniqueTokens.filter(t => !duplicates.has(t.key) && !outOfBounds.has(t.key) && !ungeneratedAI.has(t.key) && !invalidNormalForGen.has(t.key));
+      return cleanTokens.map(t => t.key).join(' ');
+    }
+    
+    return uniqueTokens.map(t => t.key).join(' ');
   };
 
   const handleUpdate = (task: TaskAssignment, field: 'plannedGenerations' | 'plannedEdits' | 'batchId' | 'plannedGenRows' | 'plannedEditRows' | 'notes', value: any) => {
@@ -464,28 +676,10 @@ const AssignWork: React.FC<AssignWorkProps> = ({
 
   return (
     <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-950 overflow-hidden transition-colors">
-        <div className="flex-1 min-h-0 flex flex-col lg:grid lg:grid-cols-12 gap-6 overflow-y-auto lg:overflow-hidden custom-scrollbar">
+        <div className="flex-1 min-h-0 flex flex-col lg:grid lg:grid-cols-12 gap-6 overflow-y-auto lg:overflow-hidden custom-scrollbar pt-2">
             
             {/* Left Column (Calendar & Pending) */}
             <div className="lg:col-span-4 flex flex-col gap-4 shrink-0 lg:h-full lg:overflow-y-auto lg:custom-scrollbar">
-                <div className="flex-none flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
-                    <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50 transition-colors">
-                        <h2 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                            <CalendarIcon className="text-[#F26C21]" size={16} />
-                            {viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
-                        </h2>
-                        <div className="flex gap-1">
-                            <button onClick={goToPreviousWeek} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-500 dark:text-slate-400"><ChevronLeft size={16} /></button>
-                            <button onClick={goToNextWeek} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-500 dark:text-slate-400"><ChevronRight size={16} /></button>
-                        </div>
-                    </div>
-                    <div className="p-2 bg-slate-50 dark:bg-slate-900 transition-colors">
-                        <div className="grid grid-cols-7 gap-1.5">
-                            {renderCalendar()}
-                        </div>
-                    </div>
-                </div>
-
                 <div className="flex-1 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm p-4 overflow-y-auto min-h-0 custom-scrollbar transition-colors">
                     {(() => {
                         const pendingData = displayBatches.map(b => ({
@@ -590,28 +784,25 @@ const AssignWork: React.FC<AssignWorkProps> = ({
 
             {/* Right Column */}
             <div className="lg:col-span-8 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl overflow-hidden relative transition-colors h-auto lg:h-full min-h-[500px] lg:min-h-0">
-                 <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80 flex flex-col gap-3 min-h-[72px] transition-colors">
-                     <div className="flex items-center justify-between">
-                         <div className="flex items-center gap-2 md:gap-4">
-                             <button onClick={handlePrevDay} className="lg:hidden p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-500 dark:text-slate-400 shadow-sm active:scale-95 transition-colors">
-                                 <ChevronLeft size={18} />
-                             </button>
-
-                             <div>
-                                 <div className="flex items-baseline gap-2">
-                                     <h2 className="text-lg md:text-xl font-black text-slate-800 dark:text-white transition-colors">
-                                         <span className="md:hidden">{currentCalendarDate.toLocaleString('default', { weekday: 'short' })}</span>
-                                         <span className="hidden md:inline">{currentCalendarDate.toLocaleString('default', { weekday: 'long' })}</span>
-                                     </h2>
-                                     <span className="text-slate-500 dark:text-slate-400 font-medium text-sm">{currentCalendarDate.toLocaleString('default', { month: 'short', day: 'numeric' })}</span>
-                                 </div>
-                             </div>
-
-                             <button onClick={handleNextDay} className="lg:hidden p-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-500 dark:text-slate-400 shadow-sm active:scale-95 transition-colors">
-                                 <ChevronRight size={18} />
-                             </button>
-                         </div>
-                     </div>
+                 {/* Moved Calendar */}
+                 <div className="flex-none flex flex-col bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 overflow-hidden transition-colors">
+                    <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50 transition-colors">
+                        <div className="flex items-center gap-4">
+                            <h2 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                <CalendarIcon className="text-[#F26C21]" size={16} />
+                                {viewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                            </h2>
+                        </div>
+                        <div className="flex gap-1">
+                            <button onClick={goToPreviousWeek} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-500 dark:text-slate-400"><ChevronLeft size={16} /></button>
+                            <button onClick={goToNextWeek} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-800 rounded text-slate-500 dark:text-slate-400"><ChevronRight size={16} /></button>
+                        </div>
+                    </div>
+                    <div className="p-2 bg-slate-50 dark:bg-slate-900 transition-colors">
+                        <div className="grid grid-cols-7 gap-1.5">
+                            {renderCalendar()}
+                        </div>
+                    </div>
                  </div>
 
                  {/* Task List */}
@@ -625,7 +816,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                          <div className="col-span-1 text-center"></div>
                      </div>
 
-                     {displayedWorkers.map((worker, workerIdx) => {
+                     {Array.isArray(displayedWorkers) && displayedWorkers.map((worker, workerIdx) => {
                         let workerTasks = (currentDayPlan.assignments || []).filter(t => t.workerId === worker.id);
                         
                         if (workerTasks.length === 0) {
@@ -661,9 +852,15 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                                                             'bg-blue-500'
                                                         }`}>{worker.name.charAt(0)}</div>
                                                         <div className="min-w-0">
-                                                            <div className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate" title={worker.name}>{worker.name}</div>
-                                                            <div className="text-[10px] text-slate-400 dark:text-slate-500 truncate flex items-center gap-1">
-                                                                {worker.role}
+                                                            <div className="text-sm font-bold text-slate-700 dark:text-slate-200 truncate flex items-center gap-1" title={worker.name}>
+                                                                <span>{worker.name}</span>
+                                                                <Rank1Badge 
+                                                                    workerName={worker.name} 
+                                                                    rank1Name={top3Ranks.rank1} 
+                                                                    rank2Name={top3Ranks.rank2} 
+                                                                    rank3Name={top3Ranks.rank3} 
+                                                                    size={10} 
+                                                                />
                                                             </div>
                                                         </div>
                                                     </>
@@ -707,7 +904,19 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                                                 }`}
                                             >
                                                 <option value="">Select Batch...</option>
-                                                {displayBatches.filter(b => (b.progress || 0) < 100).map(b => (
+                                                {(() => {
+                                                    const base = displayBatches.filter(b => (b.progress || 0) < 100);
+                                                    if (task.batchId && task.batchId !== 'OTHER' && task.batchId !== 'LEAVE' && task.batchId !== 'HALF_DAY') {
+                                                        const alreadyIn = base.some(b => b.id === task.batchId);
+                                                        if (!alreadyIn) {
+                                                            const assignedBatch = (batches || []).find(b => b.id === task.batchId);
+                                                            if (assignedBatch) {
+                                                                return [...base, assignedBatch];
+                                                            }
+                                                        }
+                                                    }
+                                                    return base;
+                                                })().map(b => (
                                                     <option key={b.id} value={b.id}>{b.batchName}</option>
                                                 ))}
                                                 <option value="OTHER">Other / Learning</option>
@@ -743,6 +952,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                                                         placeholder="e.g. 1-5" 
                                                         value={task.plannedGenRows || ''} 
                                                         onChange={(e) => handleUpdate(task, 'plannedGenRows', e.target.value)} 
+                                                        onBlur={(e) => handleUpdate(task, 'plannedGenRows', checkDuplicateRows(e.target.value, task.batchId, 'gen', task.id))}
                                                         className="flex-1 min-w-0 py-1 h-7 px-2 text-left font-mono text-xs font-bold border border-purple-200 dark:border-purple-800 rounded-md outline-none focus:ring-1 focus:ring-purple-400 bg-purple-50/30 dark:bg-purple-900/10 text-slate-900 dark:text-slate-100 placeholder:text-slate-300 dark:placeholder:text-slate-700"
                                                     />
                                                 </div>
@@ -761,6 +971,7 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                                                         placeholder="e.g. 1-5" 
                                                         value={task.plannedEditRows || ''} 
                                                         onChange={(e) => handleUpdate(task, 'plannedEditRows', e.target.value)} 
+                                                        onBlur={(e) => handleUpdate(task, 'plannedEditRows', checkDuplicateRows(e.target.value, task.batchId, 'edit', task.id))}
                                                         className="flex-1 min-w-0 py-1 h-7 px-2 text-left font-mono text-xs font-bold border border-blue-200 dark:border-blue-800 rounded-md outline-none focus:ring-1 focus:ring-blue-400 bg-blue-50/30 dark:bg-blue-900/10 text-slate-900 dark:text-slate-100 placeholder:text-slate-300 dark:placeholder:text-slate-700"
                                                     />
                                                 </div>
@@ -794,6 +1005,31 @@ const AssignWork: React.FC<AssignWorkProps> = ({
                  </div>
             </div>
         </div>
+        
+        {/* Duplicate Warning Modal */}
+        {duplicateWarning && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col max-h-[90vh] border border-slate-200 dark:border-slate-800 transition-colors">
+                    <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center gap-3 bg-red-50 dark:bg-red-900/20 transition-colors">
+                        <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
+                            <AlertCircle className="text-red-600 dark:text-red-400" size={20} />
+                        </div>
+                        <h2 className="text-lg font-bold text-red-800 dark:text-red-400">Assignment Warning</h2>
+                    </div>
+                    <div className="p-5 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700 dark:text-slate-300 font-medium transition-colors">
+                        {duplicateWarning}
+                    </div>
+                    <div className="p-5 border-t border-slate-100 dark:border-slate-800 flex justify-end bg-slate-50 dark:bg-slate-900 transition-colors">
+                        <button 
+                            onClick={() => setDuplicateWarning(null)}
+                            className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-sm rounded-lg shadow-lg shadow-red-200 dark:shadow-none transition-all active:scale-95"
+                        >
+                            Got It
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
   );
 };

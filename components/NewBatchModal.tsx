@@ -9,10 +9,14 @@ interface NewBatchModalProps {
   onSave: (batch: Omit<Batch, 'id' | 'status' | 'createdAt'>) => void;
   currentLanguage: string;
   initialData?: Batch | null;
+  batches?: Batch[];
 }
 
-const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, currentLanguage, initialData }) => {
-  const [clientName, setClientName] = useState('');
+const DEFAULT_BRANDS = ['Seekho', 'Speakx', 'Axis Max', 'Moneyview', 'Oolka'];
+
+const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, currentLanguage, initialData, batches = [] }) => {
+  const [selectedBrand, setSelectedBrand] = useState('');
+  const [customBrand, setCustomBrand] = useState('');
   const [batchName, setBatchName] = useState('');
   const [aiVideos, setAiVideos] = useState(0);
   const [normalVideos, setNormalVideos] = useState(0);
@@ -22,11 +26,30 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
   const [normalRows, setNormalRows] = useState('');
   const [startRow, setStartRow] = useState(2);
   const [endRow, setEndRow] = useState(0);
+  const [horizontalVersions, setHorizontalVersions] = useState(0);
+  const [verticalVersions, setVerticalVersions] = useState(0);
+  const [squareVersions, setSquareVersions] = useState(0);
+
+  // Generate list of brands
+  const existingBrands = React.useMemo(() => {
+    return [...DEFAULT_BRANDS];
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
         if (initialData) {
-            setClientName(initialData.clientName);
+            const client = initialData.clientName || '';
+            const matched = existingBrands.find(b => b.toLowerCase() === client.toLowerCase());
+            if (matched) {
+                setSelectedBrand(matched);
+                setCustomBrand('');
+            } else if (client) {
+                setSelectedBrand('__NEW_BRAND__');
+                setCustomBrand(client);
+            } else {
+                setSelectedBrand('');
+                setCustomBrand('');
+            }
             setBatchName(initialData.batchName);
             setAiVideos(initialData.aiVideos);
             setNormalVideos(initialData.normalVideos);
@@ -36,8 +59,12 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
             setNormalRows(initialData.normalRows || '');
             setStartRow(initialData.startRow || 2);
             setEndRow(initialData.endRow || 0);
+            setHorizontalVersions(initialData.horizontalVersions || 0);
+            setVerticalVersions(initialData.verticalVersions || 0);
+            setSquareVersions(initialData.squareVersions || 0);
         } else {
-            setClientName('');
+            setSelectedBrand('');
+            setCustomBrand('');
             setBatchName('');
             setAiVideos(0);
             setNormalVideos(0);
@@ -47,9 +74,12 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
             setNormalRows('');
             setStartRow(2);
             setEndRow(0);
+            setHorizontalVersions(0);
+            setVerticalVersions(0);
+            setSquareVersions(0);
         }
     }
-  }, [isOpen, initialData]);
+  }, [isOpen, initialData, existingBrands]);
 
   const sanitizeRowInput = (inputStr: string, start: number, end: number) => {
     if (!inputStr) return '';
@@ -76,6 +106,8 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
     }
   }, [startRow, endRow, normalRows, dummyRows]);
 
+  const clientName = selectedBrand === '__NEW_BRAND__' ? customBrand.trim() : selectedBrand.trim();
+
   if (!isOpen) return null;
 
   const handleSubmit = () => {
@@ -86,6 +118,9 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
       batchName,
       aiVideos,
       normalVideos,
+      horizontalVersions,
+      verticalVersions,
+      squareVersions,
       startDate,
       endDate,
       dummyRows,
@@ -104,7 +139,7 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
         <div className="p-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 transition-colors">
           <div className="flex items-center gap-3">
              <div className="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg transition-colors">
-               <Layers className="text-blue-600 dark:text-blue-400" size={20} />
+                <Layers className="text-blue-600 dark:text-blue-400" size={20} />
              </div>
              <div>
                 <h2 className="text-lg font-bold text-slate-800 dark:text-white transition-colors">{initialData ? 'Edit Batch' : `New ${currentLanguage} Batch`}</h2>
@@ -117,16 +152,33 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
         
         <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar bg-white dark:bg-slate-900 transition-colors">
           <div>
-            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Client Name</label>
-            <input
-              type="text"
-              value={clientName}
-              onChange={(e) => setClientName(e.target.value)}
+            <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Client Brand</label>
+            <select
+              value={selectedBrand}
+              onChange={(e) => setSelectedBrand(e.target.value)}
               className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
-              placeholder="Nerchuko"
-              autoFocus={!initialData}
-            />
+            >
+              <option value="">Select current brand...</option>
+              {existingBrands.map(brand => (
+                <option key={brand} value={brand}>{brand}</option>
+              ))}
+              <option value="__NEW_BRAND__">+ Add New Brand</option>
+            </select>
           </div>
+
+          {selectedBrand === '__NEW_BRAND__' && (
+            <div className="animate-in slide-in-from-top-1 duration-200">
+              <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Enter New Brand Name</label>
+              <input
+                type="text"
+                value={customBrand}
+                onChange={(e) => setCustomBrand(e.target.value)}
+                className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
+                placeholder="E.g. Seekho, Speakx, etc."
+                autoFocus
+              />
+            </div>
+          )}
           
           <div>
             <label className="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1">Batch Name/ID</label>
@@ -202,6 +254,39 @@ const NewBatchModal: React.FC<NewBatchModalProps> = ({ isOpen, onClose, onSave, 
                   value={normalVideos}
                   onChange={(e) => setNormalVideos(parseInt(e.target.value) || 0)}
                   className="w-full p-2.5 border border-slate-200 dark:border-slate-700 rounded-lg text-lg font-black text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
+                />
+             </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+             <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Horizontal Ver.</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={horizontalVersions}
+                  onChange={(e) => setHorizontalVersions(parseInt(e.target.value) || 0)}
+                  className="w-full p-2 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
+                />
+             </div>
+             <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Vertical Ver.</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={verticalVersions}
+                  onChange={(e) => setVerticalVersions(parseInt(e.target.value) || 0)}
+                  className="w-full p-2 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
+                />
+             </div>
+             <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">Square Ver.</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={squareVersions}
+                  onChange={(e) => setSquareVersions(parseInt(e.target.value) || 0)}
+                  className="w-full p-2 border border-slate-200 dark:border-slate-700 rounded-lg text-center font-bold text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-colors"
                 />
              </div>
           </div>

@@ -3,7 +3,7 @@ import { getFirestore, collection, getDocs } from 'firebase/firestore';
 import firebaseConfig from './firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
 
 async function checkData() {
   const plansCol = collection(db, 'production_plans');

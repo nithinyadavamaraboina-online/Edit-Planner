@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Worker } from '../types';
-import { X, Users, Globe, Plus, Trash2, Settings, UserPlus, Download, Upload, HardDrive, RefreshCw } from 'lucide-react';
+import { X, Users, Globe, Plus, Trash2, Settings, UserPlus, Download, Upload, HardDrive, RefreshCw, Check, Bell, Loader2 } from 'lucide-react';
+import { getAccessToken, signInWithGoogle } from '../services/firestoreService';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -14,6 +15,8 @@ interface SettingsModalProps {
   onExportData?: () => void;
   onImportData?: (data: any) => void;
   onError?: (msg: string) => void;
+  projectMeta?: any;
+  onUpdateProjectField?: (fields: any) => Promise<void>;
 }
 
 const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -26,7 +29,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   currentLanguage,
   onExportData,
   onImportData,
-  onError
+  onError,
+  projectMeta,
+  onUpdateProjectField
 }) => {
   const [activeTab, setActiveTab] = useState<'team' | 'languages' | 'data'>('team');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -261,8 +266,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                                 {worker.name.charAt(0)}
                                             </div>
                                             <div className="min-w-0">
-                                                <div className="font-bold text-slate-800 dark:text-slate-200 truncate">{worker.name}</div>
-                                                <div className="text-[10px] text-slate-400 dark:text-slate-500 uppercase font-black tracking-widest">{worker.role}</div>
+                                                <input 
+                                                    type="text" 
+                                                    value={worker.name}
+                                                    onChange={(e) => {
+                                                        const updatedWorkers = workers.map(w => 
+                                                            w.id === worker.id ? { ...w, name: e.target.value } : w
+                                                        );
+                                                        onUpdateWorkers(updatedWorkers);
+                                                    }}
+                                                    placeholder="Name"
+                                                    className="p-1 border border-slate-200 dark:border-slate-700 focus:border-[#F26C21] rounded text-sm font-bold bg-white dark:bg-slate-800 outline-none text-slate-800 dark:text-slate-200 transition-colors w-full mb-1"
+                                                />
                                             </div>
                                         </div>
                                         <button 
@@ -347,7 +362,18 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                                     }`}>
                                                         {worker.name.charAt(0)}
                                                     </div>
-                                                    <span className="font-bold text-slate-700 dark:text-slate-200 text-sm truncate">{worker.name}</span>
+                                                    <input 
+                                                        type="text" 
+                                                        value={worker.name}
+                                                        onChange={(e) => {
+                                                            const updatedWorkers = workers.map(w => 
+                                                                w.id === worker.id ? { ...w, name: e.target.value } : w
+                                                            );
+                                                            onUpdateWorkers(updatedWorkers);
+                                                        }}
+                                                        placeholder="Name"
+                                                        className="p-1.5 border border-slate-200 dark:border-slate-700 rounded text-xs font-bold bg-white dark:bg-slate-800 focus:ring-1 focus:ring-purple-500 outline-none text-slate-700 dark:text-slate-300 w-full transition-colors font-bold"
+                                                    />
                                                 </div>
                                             </td>
                                             <td className="p-3">
@@ -368,13 +394,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                                 <select 
                                                     value={worker.role} 
                                                     onChange={(e) => handleWorkerRoleChange(worker.id, e.target.value)}
-                                                    className={`text-xs font-bold px-2 py-1.5 rounded-md border-0 outline-none cursor-pointer w-full ${
-                                                        worker.role === 'Intern' ? 'bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400' : 
-                                                        worker.role === 'Assist' ? 'bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400' : 
-                                                        worker.role === 'Manager' ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400' :
-                                                        worker.role === 'TL' ? 'bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400' :
-                                                        'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
-                                                    }`}
+                                                    className="p-1.5 border border-slate-200 dark:border-slate-700 rounded text-xs font-bold bg-white dark:bg-slate-800 focus:ring-1 focus:ring-purple-500 outline-none text-slate-700 dark:text-slate-300 cursor-pointer w-full transition-colors"
                                                 >
                                                     <option value="Editor">Editor</option>
                                                     <option value="Intern">Intern</option>

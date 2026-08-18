@@ -21,7 +21,7 @@ const EditorsApp: React.FC = () => {
   const [currentView, setCurrentView] = useState<'dashboard' | 'leaves'>('dashboard');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(true);
+  const [isDarkMode, setIsDarkMode] = useState(false);
 
   const lastLocalUpdate = useRef<number>(0);
   const pendingRemoteUpdate = useRef<any>(null);
@@ -188,7 +188,14 @@ const EditorsApp: React.FC = () => {
     const migrated = migrateBatches(batches);
     if (!plan) return migrated.map(b => ({...b, progress: 0, completedNormal: 0}));
 
-    const stats: Record<string, { assignedGen: number, assignedEdit: number, assignedNormal: number }> = {};
+    const stats: Record<string, { 
+        completedGenRows: Set<string>; 
+        completedEditRows: Set<string>; 
+        completedNormalRows: Set<string>;
+        legacyGen: number;
+        legacyEdit: number;
+        legacyNormal: number;
+    }> = {};
     
     const parseDummies = (str?: string) => {
         const set = new Set<number>();
@@ -210,65 +217,179 @@ const EditorsApp: React.FC = () => {
         return set;
     };
 
-    const countValidRows = (str: string, dummySet: Set<number>) => {
-        if (!str) return 0;
-        const tokens = str.trim().split(/[\s,]+/).filter(Boolean);
-        let count = 0;
-        tokens.forEach(t => {
-            const n = parseInt(t);
-            if (!isNaN(n) && !dummySet.has(n)) {
-                count++;
-            }
-        });
-        return count;
+    const normalizeToken = (s: string) => {
+        const str = s.trim();
+        if (!str) return null;
+        const match = str.match(/^0*(\d+)([a-zA-Z]?)$/);
+        if (!match) return null;
+        const n = parseInt(match[1], 10);
+        if (isNaN(n)) return null;
+        const v = match[2].toLowerCase();
+        return { raw: str, num: n, key: v ? `${n}${v}` : `${n}`, ver: v };
     };
 
     (plan.schedule || []).forEach(day => {
         (day.assignments || []).forEach(task => {
             if (task.batchId && task.batchId !== 'DEFAULT') {
-                if (!stats[task.batchId]) stats[task.batchId] = { assignedGen: 0, assignedEdit: 0, assignedNormal: 0 };
-                
-                const batch = migrated.find(b => b.id === task.batchId);
-                const dummySet = batch ? parseDummies(batch.dummyRows) : new Set<number>();
-                const normalSet = batch ? parseNormalRows(batch.normalRows) : new Set<number>();
-
-                if (task.assignedGenRows && task.assignedGenRows.trim().length > 0) {
-                    stats[task.batchId].assignedGen += countValidRows(task.assignedGenRows, dummySet);
-                } else {
-                    stats[task.batchId].assignedGen += task.generations;
+                if (!stats[task.batchId]) {
+                    stats[task.batchId] = { 
+                        completedGenRows: new Set<string>(), 
+                        completedEditRows: new Set<string>(), 
+                        completedNormalRows: new Set<string>(),
+                        legacyGen: 0,
+                        legacyEdit: 0,
+                        legacyNormal: 0
+                    };
                 }
+                
+                const isTaskCompleted = (task.status || 'Completed') === 'Completed' || task.status === 'Rework';
+                if (isTaskCompleted) {
+                    const batch = migrated.find(b => b.id === task.batchId);
+                    const dummySet = batch ? parseDummies(batch.dummyRows) : new Set<number>();
+                    const normalSet = batch ? parseNormalRows(batch.normalRows) : new Set<number>();
 
-                if (task.assignedEditRows && task.assignedEditRows.trim().length > 0) {
-                    const tokens = task.assignedEditRows.trim().split(/[\s,]+/).filter(Boolean);
-                    tokens.forEach(t => {
-                        const n = parseInt(t);
-                        if (!isNaN(n) && !dummySet.has(n)) {
-                            if (normalSet.has(n)) {
-                                stats[task.batchId].assignedNormal += 1;
-                            } else {
-                                stats[task.batchId].assignedEdit += 1;
+                    if (task.assignedGenRows && task.assignedGenRows.trim().length > 0) {
+                        const tokens = task.assignedGenRows.trim().split(/[\s,]+/).filter(Boolean);
+                        tokens.forEach(tokStr => {
+                            const t = normalizeToken(tokStr);
+                            if (t && !dummySet.has(t.num)) {
+                                stats[task.batchId].completedGenRows.add(t.key);
                             }
-                        }
-                    });
-                } else {
-                    stats[task.batchId].assignedEdit += task.edits;
+                        });
+                    } else {
+                        stats[task.batchId].legacyGen += task.generations;
+                    }
+
+                    if (task.assignedEditRows && task.assignedEditRows.trim().length > 0) {
+                        const tokens = task.assignedEditRows.trim().split(/[\s,]+/).filter(Boolean);
+                        tokens.forEach(tokStr => {
+                            const t = normalizeToken(tokStr);
+                            if (t && !dummySet.has(t.num)) {
+                                if (!t.ver && normalSet.has(t.num)) {
+                                    stats[task.batchId].completedNormalRows.add(t.key);
+                                } else {
+                                    stats[task.batchId].completedEditRows.add(t.key);
+                                }
+                            }
+                        });
+                    } else {
+                        stats[task.batchId].legacyEdit += task.edits;
+                    }
                 }
             }
         });
     });
 
     return migrated.map(b => {
-        const s = stats[b.id] || { assignedGen: 0, assignedEdit: 0, assignedNormal: 0 };
-        const total = b.aiVideos + (b.aiVideos + b.normalVideos);
-        const done = s.assignedGen + s.assignedEdit + s.assignedNormal;
-        const p = total > 0 ? Math.round((done / total) * 100) : 0;
-        
+        const s = stats[b.id];
+        let assignedGen = 0;
+        let assignedEdit = 0;
+        let assignedNormal = 0;
+
+        if (s) {
+            assignedGen += s.legacyGen;
+            assignedEdit += s.legacyEdit;
+            assignedNormal += s.legacyNormal;
+        }
+
+        const dummySet = parseDummies(b.dummyRows);
+        const normalSet = parseNormalRows(b.normalRows);
+        const start = b.startRow !== undefined ? b.startRow : 2;
+        const end = b.endRow !== undefined ? b.endRow : (b.aiVideos + b.normalVideos + start - 1);
+
+        for (let i = start; i <= end; i++) {
+            if (dummySet.has(i)) continue;
+
+            // AI Video Gen (counted regardless of normal/AI status if completed)
+            if (s && (s.completedGenRows.has(`${i}`) || s.completedGenRows.has(`${i}h`) || s.completedGenRows.has(`${i}v`) || s.completedGenRows.has(`${i}s`))) {
+                assignedGen += 1;
+            }
+
+            if (normalSet.has(i)) {
+                if (s && s.completedNormalRows.has(`${i}`)) {
+                    assignedNormal += 1;
+                }
+            } else {
+                // AI Video Edit
+                if (s) {
+                    const hasBase = s.completedEditRows.has(`${i}`);
+                    const hasH = s.completedEditRows.has(`${i}h`);
+                    const hasV = s.completedEditRows.has(`${i}v`);
+                    const hasS = s.completedEditRows.has(`${i}s`);
+                    
+                    if (b.horizontalVersions || b.verticalVersions || b.squareVersions) {
+                        if (hasBase) {
+                            assignedEdit += 1;
+                        } else {
+                            let score = 0;
+                            if (b.horizontalVersions && hasH) score += 0.25;
+                            if (b.verticalVersions && hasV) score += 0.25;
+                            if (b.squareVersions && hasS) score += 0.25;
+                            assignedEdit += score;
+                        }
+                    } else {
+                        if (hasBase) {
+                            assignedEdit += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        const versionsTotal = ((b.horizontalVersions || 0) + (b.verticalVersions || 0) + (b.squareVersions || 0)) * 0.25;
+        const total = b.aiVideos + (b.aiVideos + b.normalVideos) + versionsTotal;
+        const done = assignedGen + assignedEdit + assignedNormal;
+
+        // Check for physical pending rows in the actual row range
+        let hasPendingRow = false;
+        for (let i = start; i <= end; i++) {
+            if (dummySet.has(i)) continue;
+            
+            if (normalSet.has(i)) {
+                if (!s || !s.completedNormalRows.has(`${i}`)) {
+                    hasPendingRow = true;
+                    break;
+                }
+            } else {
+                // AI Video Gen Check
+                const isGenDone = s && (s.completedGenRows.has(`${i}`) || s.completedGenRows.has(`${i}h`) || s.completedGenRows.has(`${i}v`) || s.completedGenRows.has(`${i}s`));
+                if (!isGenDone) {
+                    hasPendingRow = true;
+                    break;
+                }
+                
+                // AI Video Edit Check
+                if (!s) {
+                    hasPendingRow = true;
+                    break;
+                }
+                const hasBase = s.completedEditRows.has(`${i}`);
+                if (!hasBase) {
+                    let editPending = false;
+                    if (b.horizontalVersions && !s.completedEditRows.has(`${i}h`)) editPending = true;
+                    if (b.verticalVersions && !s.completedEditRows.has(`${i}v`)) editPending = true;
+                    if (b.squareVersions && !s.completedEditRows.has(`${i}s`)) editPending = true;
+                    if (!b.horizontalVersions && !b.verticalVersions && !b.squareVersions) editPending = true;
+                    
+                    if (editPending) {
+                        hasPendingRow = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        let p = total > 0 ? Math.round((done / total) * 100) : 0;
+        if (hasPendingRow && p >= 100) {
+            p = 99; // Cap at 99% if we physically have pending unassigned/uncompleted rows
+        }
+
         return {
             ...b,
-            completedGen: s.assignedGen,
-            completedEdit: s.assignedEdit,
-            completedNormal: s.assignedNormal,
-            progress: Math.min(100, p)
+            completedGen: assignedGen,
+            completedEdit: assignedEdit + assignedNormal,
+            completedNormal: assignedNormal,
+            progress: Math.min(100, Math.max(0, p))
         };
     });
   }, [plan, batches]);
@@ -489,7 +610,7 @@ const EditorsApp: React.FC = () => {
               <img 
                 src="https://wedomarketing.co.in/wp-content/uploads/2024/04/cropped-1-1536x880.png" 
                 alt="WeDo Marketing" 
-                className="h-8 md:h-9 w-auto object-contain" 
+                className="h-8 md:h-9 w-auto object-contain hidden sm:block" 
               />
               <div className="h-6 w-px bg-slate-200 dark:bg-slate-700 hidden sm:block"></div>
               <span className="text-sm font-bold text-slate-700 dark:text-slate-200 hidden md:block">Editors Dashboard</span>
@@ -515,13 +636,6 @@ const EditorsApp: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3 justify-end">
-            <button
-              onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2 text-slate-400 dark:text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:hover:text-slate-300 rounded-full transition-colors"
-              title="Toggle Dark Mode"
-            >
-              {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
           </div>
         </header>
 

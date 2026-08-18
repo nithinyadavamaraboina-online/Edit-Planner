@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@variant dark (.dark &);
+
 @theme {
   --color-slate-850: #1e293b;
   --color-slate-900: #0f172a;
@@ -12,7 +14,7 @@ body {
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100 transition-colors duration-300;
+    @apply bg-slate-50 text-slate-900 transition-colors duration-300;
   }
 }
 
@@ -33,10 +35,10 @@ body {
   background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  @apply bg-slate-200 dark:bg-slate-800 rounded-full;
+  @apply bg-slate-200 rounded-full;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  @apply bg-slate-300 dark:bg-slate-700;
+  @apply bg-slate-300;
 }
 
 /* Hide number input spinners */
