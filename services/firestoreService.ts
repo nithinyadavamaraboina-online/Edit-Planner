@@ -344,6 +344,7 @@ export const syncUserProfileOnLogin = async (user: FirebaseUser) => {
 export const signInWithGoogle = async () => {
   const authInstance = getAuthInstance();
   const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
   
   try {
     const result = await signInWithPopup(authInstance, provider);
@@ -355,8 +356,15 @@ export const signInWithGoogle = async () => {
       await syncUserProfileOnLogin(result.user);
     }
     return result.user;
-  } catch (error) {
-    console.error("Error signing in with Google", error);
+  } catch (error: any) {
+    console.error("Error signing in with Google:", error);
+    if (error.code === 'auth/configuration-not-found' || error.code === 'auth/operation-not-allowed') {
+      alert("Google Sign-In is not enabled yet in your new Firebase Console. Please go to Firebase Console -> Authentication -> Sign-in method -> Enable Google.");
+    } else if (error.code === 'auth/popup-blocked') {
+      alert("Popup was blocked by your browser. Please allow popups for this site and try again.");
+    } else if (error.code !== 'auth/popup-closed-by-user') {
+      alert(`Sign in failed: ${error.message || error}`);
+    }
     throw error;
   }
 };
